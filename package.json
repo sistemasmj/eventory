@@ -1,0 +1,39 @@
+{
+  "name": "gallery-backend",
+  "version": "1.0.0",
+  "description": "Backend optimizado para galería de imágenes con MySQL",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "cluster": "pm2 start server.js -i max --name gallery-api",
+    "migrate": "node src/config/migrate.js",
+    "db:create": "mysql -u root -p -e 'CREATE DATABASE IF NOT EXISTS gallery_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'",
+    "db:seed": "node src/config/grant-privileges.js && node src/config/seed.js",
+    "db:grant": "node src/config/grant-privileges.js",
+    "db:backup": "mysqldump -u gallery_user -p gallery_db > backup.sql",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f mysql"
+  },
+  "dependencies": {
+    "@fastify/compress": "^7.0.0",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/helmet": "^11.0.0",
+    "@fastify/multipart": "^8.0.0",
+    "@fastify/rate-limit": "^9.0.0",
+    "@fastify/static": "^7.0.0",
+    "dotenv": "^16.0.0",
+    "fastify": "^4.28.0",
+    "fastify-plugin": "^4.5.0",
+    "mysql2": "^3.24.2",
+    "p-limit": "^3.1.0",
+    "sequelize": "^6.37.8",
+    "sharp": "^0.33.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0",
+    "pm2": "^5.0.0"
+  }
+}
