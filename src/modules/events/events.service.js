@@ -1,21 +1,46 @@
-const { Event, GalleryImage } = require('../../models');
-const { fileEvents, EVENTS } = require('../files/files.events');
+const { Event, GalleryImage, sequelize } = require('../../models');
 const cache = require('../../utils/cache');
 const { Op } = require('sequelize');
+const crypto = require('crypto');
 
 class EventsService {
   /**
    * Crear nuevo evento
    */
   async createEvent(data) {
+    const estado = data.estado || 'En Preparación';
+    const fechaRegistro = data.fecha_registro ? new Date(data.fecha_registro) : new Date();
+    const nombreCliente = data.nombre_cliente || data.nombre || null;
+    const fechaEvento = data.fecha_evento || null;
+    const notas = data.notas || data.descripcion || null;
+    // Generar código único aleatorio UUID con números y letras
+    const codigoGenerado = data.codigo || crypto.randomUUID();
+
     const event = await Event.create({
-      nombre: data.nombre,
-      fecha: data.fecha || new Date(),
-      estado: data.estado || 'activo',
-      descripcion: data.descripcion
+      codigo: codigoGenerado,
+      tipo_ceremonia: data.tipo_ceremonia !== undefined && data.tipo_ceremonia !== null ? parseInt(data.tipo_ceremonia, 10) : null,
+      nombre_cliente: nombreCliente,
+      telefono: data.telefono || null,
+      email: data.email || null,
+      fecha_evento: fechaEvento,
+      hora_evento: data.hora_evento || null,
+      lugar: data.lugar || null,
+      numero_invitados: data.numero_invitados !== undefined && data.numero_invitados !== null ? parseInt(data.numero_invitados, 10) : null,
+      presupuesto: data.presupuesto !== undefined && data.presupuesto !== null ? parseFloat(data.presupuesto) : null,
+      nombre_paquete: data.nombre_paquete || null,
+      notas: notas,
+      estado: estado,
+      fecha_registro: fechaRegistro,
+      // Compatibilidad
+      nombre: nombreCliente || 'Evento',
+      fecha: fechaEvento ? new Date(fechaEvento) : new Date(),
+      descripcion: notas
     });
 
+    // Invalidar cachés
+    cache.del('events:all');
     cache.del('gallery:all');
+
     return event;
   }
 
@@ -23,7 +48,7 @@ class EventsService {
    * Obtener todos los eventos
    */
   async getEvents(options = {}) {
-    const cacheKey = 'events:all';
+    const cacheKey = `events:all:${JSON.stringify(options)}`;
     const cachedData = cache.get(cacheKey);
     
     if (cachedData) {
@@ -34,10 +59,34 @@ class EventsService {
     if (options.estado) {
       where.estado = options.estado;
     }
+    if (options.tipo_ceremonia) {
+      where.tipo_ceremonia = options.tipo_ceremonia;
+    }
 
     const events = await Event.findAll({
       where,
-      attributes: ['id', 'nombre', 'fecha', 'estado', 'descripcion'],
+      attributes: [
+        'id',
+        'codigo',
+        'tipo_ceremonia',
+        'nombre_cliente',
+        'telefono',
+        'email',
+        'fecha_evento',
+        'hora_evento',
+        'lugar',
+        'numero_invitados',
+        'presupuesto',
+        'nombre_paquete',
+        'notas',
+        'estado',
+        'fecha_registro',
+        'nombre',
+        'fecha',
+        'descripcion',
+        'created_at',
+        'updated_at'
+      ],
       include: [{
         model: GalleryImage,
         as: 'images',
@@ -47,13 +96,16 @@ class EventsService {
         required: false,
         where: { estado: 'activo' }
       }],
-      order: [['fecha', 'DESC']],
+      order: [['fecha_registro', 'DESC'], ['id', 'DESC']],
       limit: options.limit || 100,
       offset: options.offset || 0
     });
 
     const result = events.map(event => {
       const eventData = event.toJSON();
+      if (eventData.presupuesto !== null && eventData.presupuesto !== undefined) {
+        eventData.presupuesto = parseFloat(eventData.presupuesto);
+      }
       if (eventData.images && eventData.images.length > 0) {
         eventData.cover = {
           id: eventData.images[0].id,
@@ -88,7 +140,12 @@ class EventsService {
       throw new Error('Evento no encontrado');
     }
 
-    return event;
+    const eventData = event.toJSON();
+    if (eventData.presupuesto !== null && eventData.presupuesto !== undefined) {
+      eventData.presupuesto = parseFloat(eventData.presupuesto);
+    }
+
+    return eventData;
   }
 
   /**
@@ -100,7 +157,24 @@ class EventsService {
       throw new Error('Evento no encontrado');
     }
 
-    await event.update(data);
+    const updatePayload = { ...data };
+    if (updatePayload.presupuesto !== undefined && updatePayload.presupuesto !== null) {
+      updatePayload.presupuesto = parseFloat(updatePayload.presupuesto);
+    }
+    if (updatePayload.numero_invitados !== undefined && updatePayload.numero_invitados !== null) {
+      updatePayload.numero_invitados = parseInt(updatePayload.numero_invitados, 10);
+    }
+    if (updatePayload.tipo_ceremonia !== undefined && updatePayload.tipo_ceremonia !== null) {
+      updatePayload.tipo_ceremonia = parseInt(updatePayload.tipo_ceremonia, 10);
+    }
+    if (updatePayload.nombre_cliente && !updatePayload.nombre) {
+      updatePayload.nombre = updatePayload.nombre_cliente;
+    }
+    if (updatePayload.notas && !updatePayload.descripcion) {
+      updatePayload.descripcion = updatePayload.notas;
+    }
+
+    await event.update(updatePayload);
 
     // Invalidar cachés
     cache.del('events:all');
@@ -148,12 +222,11 @@ class EventsService {
       totalEvents: total,
       byEstado: byEstado.map(item => ({
         estado: item.estado,
-        count: parseInt(item.dataValues.count)
+        count: parseInt(item.dataValues.count, 10)
       })),
       totalImages: imagesTotal
     };
   }
 }
 
-const { sequelize } = require('../../models');
 module.exports = new EventsService();

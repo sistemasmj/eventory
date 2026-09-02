@@ -8,28 +8,83 @@ const Event = sequelize.define('Event', {
     primaryKey: true,
     allowNull: false
   },
-  fecha: {
+  codigo: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  tipo_ceremonia: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  nombre_cliente: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  telefono: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  email: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    validate: {
+      customEmailValidator(value) {
+        if (value && value.trim() !== '') {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(value)) {
+            throw new Error('El formato de email no es válido');
+          }
+        }
+      }
+    }
+  },
+  fecha_evento: {
+    type: DataTypes.DATEONLY,
+    allowNull: true
+  },
+  hora_evento: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  lugar: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  numero_invitados: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  presupuesto: {
+    type: DataTypes.DECIMAL(12, 2),
+    allowNull: true
+  },
+  nombre_paquete: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  notas: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  estado: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'En Preparación',
+    allowNull: false
+  },
+  fecha_registro: {
     type: DataTypes.DATE,
     allowNull: false,
     defaultValue: DataTypes.NOW
   },
+  // Campos de compatibilidad
   nombre: {
     type: DataTypes.STRING(255),
-    allowNull: false,
-    validate: {
-      notEmpty: {
-        msg: 'El nombre no puede estar vacío'
-      },
-      len: {
-        args: [3, 255],
-        msg: 'El nombre debe tener entre 3 y 255 caracteres'
-      }
-    }
+    allowNull: true
   },
-  estado: {
-    type: DataTypes.ENUM('activo', 'inactivo', 'finalizado'),
-    defaultValue: 'activo',
-    allowNull: false
+  fecha: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: DataTypes.NOW
   },
   descripcion: {
     type: DataTypes.TEXT,
@@ -47,27 +102,44 @@ const Event = sequelize.define('Event', {
   // Índices para optimizar consultas
   indexes: [
     {
+      fields: ['codigo'],
+      name: 'idx_event_codigo'
+    },
+    {
       fields: ['estado'],
       name: 'idx_event_estado'
     },
     {
-      fields: ['fecha'],
-      name: 'idx_event_fecha'
+      fields: ['tipo_ceremonia'],
+      name: 'idx_event_tipo_ceremonia'
     },
     {
-      fields: ['nombre'],
-      name: 'idx_event_nombre'
+      fields: ['fecha_evento'],
+      name: 'idx_event_fecha_evento'
     },
     {
-      fields: ['estado', 'fecha'],
-      name: 'idx_event_estado_fecha'
+      fields: ['nombre_cliente'],
+      name: 'idx_event_nombre_cliente'
+    },
+    {
+      fields: ['fecha_registro'],
+      name: 'idx_event_fecha_registro'
     }
   ],
   
   // Hooks de MySQL
   hooks: {
     beforeCreate: (event) => {
-      console.log(`📝 Creando evento: ${event.nombre}`);
+      if (!event.nombre && event.nombre_cliente) {
+        event.nombre = event.nombre_cliente;
+      }
+      if (!event.fecha && event.fecha_evento) {
+        event.fecha = new Date(event.fecha_evento);
+      }
+      if (!event.descripcion && event.notas) {
+        event.descripcion = event.notas;
+      }
+      console.log(`📝 Creando evento: ${event.nombre_cliente || event.nombre || 'Nuevo Evento'}`);
     },
     beforeUpdate: (event) => {
       console.log(`📝 Actualizando evento: ${event.id}`);

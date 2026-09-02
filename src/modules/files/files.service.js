@@ -188,20 +188,29 @@ class FileService {
       offset: options.offset || 0
     });
 
-    // Formatear respuesta con URLs completas
-    const result = images.map(img => ({
-      id: img.id,
-      nombre: img.nombre,
-      nombreOriginal: img.nombre_original,
-      urlRaw: `${publicPrefix}${img.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}`,
-      urlThumb: `${publicPrefix}${img.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}`,
-      width: img.width,
-      height: img.height,
-      size: img.size,
-      orden: img.orden,
-      fecha: img.fecha_subida,
-      metadata: img.metadata
-    }));
+    // Formatear respuesta con URLs completas y objeto urls unificado
+    const result = images.map(img => {
+      const rawUrl = `${publicPrefix}${img.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}`;
+      const thumbUrl = `${publicPrefix}${img.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}`;
+      return {
+        id: img.id,
+        nombre: img.nombre,
+        nombreOriginal: img.nombre_original,
+        urlRaw: rawUrl,
+        urlThumb: thumbUrl,
+        urls: {
+          thumb: thumbUrl,
+          preview: rawUrl,
+          original: rawUrl
+        },
+        width: img.width,
+        height: img.height,
+        size: img.size,
+        orden: img.orden,
+        fecha: img.fecha_subida,
+        metadata: img.metadata
+      };
+    });
 
     // Guardar en caché
     cache.set(cacheKey, result);
@@ -280,30 +289,84 @@ async getAllGalleries(options = {}) {
 }
 
   /**
-   * Eliminar imagen
+   * Eliminar múltiples imágenes por ID (registro en BD y archivos físicos)
    */
-  async deleteImage(imageId) {
-    const image = await GalleryImage.findByPk(imageId);
-    if (!image) {
-      throw new Error('Imagen no encontrada');
+  async deleteFiles(imageIds) {
+    if (!imageIds) {
+      throw new Error('No se proporcionaron IDs de imágenes para eliminar');
     }
 
-    // Soft delete
-    image.estado = 'eliminado';
-    await image.save();
+    const ids = Array.isArray(imageIds) ? imageIds.filter(Boolean) : [imageIds].filter(Boolean);
 
-    // Emitir evento de eliminación
-    fileEvents.emit(EVENTS.IMAGE_DELETED, {
-      imageId,
-      eventId: image.event_id,
-      paths: [image.ruta_raw, image.ruta_thumb]
+    if (ids.length === 0) {
+      return {
+        success: true,
+        message: 'No se enviaron identificadores válidos',
+        deletedCount: 0,
+        deletedIds: []
+      };
+    }
+
+    // Buscar todas las imágenes a eliminar
+    const images = await GalleryImage.findAll({
+      where: {
+        id: {
+          [Op.in]: ids
+        }
+      }
     });
 
-    // Invalidar cachés
-    cache.del(`gallery:${image.event_id}`);
+    if (!images || images.length === 0) {
+      return {
+        success: true,
+        message: 'No se encontraron archivos para eliminar',
+        deletedCount: 0,
+        deletedIds: []
+      };
+    }
+
+    const eventIdsToInvalidate = new Set();
+    const deletedIds = [];
+
+    for (const image of images) {
+      eventIdsToInvalidate.add(image.event_id);
+
+      // Eliminar registro y archivos físicos mediante hook beforeDestroy
+      await image.destroy({ force: true });
+      deletedIds.push(image.id);
+
+      // Emitir evento por imagen eliminada
+      fileEvents.emit(EVENTS.IMAGE_DELETED, {
+        imageId: image.id,
+        eventId: image.event_id,
+        paths: [image.ruta_raw, image.ruta_thumb]
+      });
+    }
+
+    // Invalidar caché de los eventos afectados
+    for (const eventId of eventIdsToInvalidate) {
+      cache.del(`gallery:${eventId}`);
+    }
     cache.del('gallery:all');
 
-    return { success: true, message: 'Imagen eliminada correctamente' };
+    const count = deletedIds.length;
+    const friendlyMessage = count === 1 
+      ? 'Se eliminó 1 archivo satisfactoriamente'
+      : `Se eliminaron ${count} archivos satisfactoriamente`;
+
+    return {
+      success: true,
+      message: friendlyMessage,
+      deletedCount: count,
+      deletedIds
+    };
+  }
+
+  /**
+   * Eliminar imagen individual
+   */
+  async deleteImage(imageId) {
+    return this.deleteFiles([imageId]);
   }
 
   /**

@@ -1,0 +1,63 @@
+require('dotenv').config();
+const { sequelize } = require('./database');
+
+async function migrateImagenesTable() {
+  console.log('🚀 Iniciando migración de la tabla imagenes...');
+  try {
+    // 1. Crear tabla si no existe
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS imagenes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        empresa_id INT NOT NULL,
+        image_token VARCHAR(64) NOT NULL,
+        orden INT NOT NULL DEFAULT 0,
+        estado TINYINT NOT NULL DEFAULT 1,
+        nombre_original VARCHAR(255) NULL,
+        mime_type VARCHAR(50) NULL,
+        size BIGINT NULL,
+        width INT NULL,
+        height INT NULL,
+        metadata JSON NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ Tabla imagenes creada o verificada');
+
+    // 2. Verificar índices requeridos
+    const [indexes] = await sequelize.query('SHOW INDEX FROM imagenes');
+    const existingIndexes = indexes.map(i => i.Key_name);
+
+    if (!existingIndexes.includes('idx_imagenes_image_token_unique')) {
+      await sequelize.query('CREATE UNIQUE INDEX idx_imagenes_image_token_unique ON imagenes(image_token)');
+      console.log('✅ Creado índice UNIQUE idx_imagenes_image_token_unique');
+    }
+
+    if (!existingIndexes.includes('idx_imagenes_empresa_estado_orden')) {
+      await sequelize.query('CREATE INDEX idx_imagenes_empresa_estado_orden ON imagenes(empresa_id, estado, orden)');
+      console.log('✅ Creado índice compuesto idx_imagenes_empresa_estado_orden');
+    }
+
+    if (!existingIndexes.includes('idx_imagenes_empresa_id')) {
+      await sequelize.query('CREATE INDEX idx_imagenes_empresa_id ON imagenes(empresa_id)');
+      console.log('✅ Creado índice idx_imagenes_empresa_id');
+    }
+
+    const [columns] = await sequelize.query('DESCRIBE imagenes');
+    console.log('\n📋 Estructura de la tabla imagenes:');
+    console.table(columns);
+
+    console.log('🎉 Migración de imagenes completada exitosamente.');
+    process.exit(0);
+  } catch (err) {
+    console.error('❌ Error durante la migración de imagenes:', err);
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  migrateImagenesTable();
+}
+
+module.exports = migrateImagenesTable;

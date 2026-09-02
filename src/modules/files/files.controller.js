@@ -114,6 +114,33 @@ class FileController {
   }
 
   /**
+   * Eliminar múltiples archivos / imágenes por ID
+   */
+  async deleteFiles(request, reply) {
+    try {
+      const body = request.body || {};
+      const ids = body.ids || body.imageIds || (Array.isArray(body) ? body : (body.id ? [body.id] : []));
+
+      if (!ids || (Array.isArray(ids) && ids.length === 0)) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Debe proporcionar al menos un ID de imagen a eliminar'
+        });
+      }
+
+      const result = await FileService.deleteFiles(ids);
+      return reply.status(200).send(result);
+
+    } catch (error) {
+      console.error('Error en deleteFiles:', error);
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Error al eliminar archivos'
+      });
+    }
+  }
+
+  /**
    * Eliminar imagen
    */
   async deleteImage(request, reply) {

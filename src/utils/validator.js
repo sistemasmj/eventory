@@ -65,16 +65,16 @@ function validateUpload(files) {
 function validateEvent(data) {
   const errors = [];
 
-  if (!data.nombre || data.nombre.trim().length < 3) {
-    errors.push('El nombre debe tener al menos 3 caracteres');
+  const nombre = data.nombre_cliente || data.nombre;
+  if (!nombre && data.tipo_ceremonia === undefined) {
+    errors.push('El nombre del cliente o tipo de ceremonia es requerido');
   }
 
-  if (data.nombre && data.nombre.length > 255) {
-    errors.push('El nombre no debe exceder 255 caracteres');
-  }
-
-  if (data.estado && !['activo', 'inactivo', 'finalizado'].includes(data.estado)) {
-    errors.push('Estado no válido');
+  if (data.email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(data.email)) {
+      errors.push('El formato de correo electrónico no es válido');
+    }
   }
 
   return {

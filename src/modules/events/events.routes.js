@@ -16,6 +16,10 @@ async function eventsRoutes(fastify, options) {
     handler: EventsController.getEvents.bind(EventsController)
   });
 
+  fastify.get('/events/list', {
+    handler: EventsController.getEvents.bind(EventsController)
+  });
+
   fastify.get('/events/:eventId', {
     handler: EventsController.getEventById.bind(EventsController)
   });

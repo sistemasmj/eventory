@@ -9,7 +9,7 @@ const fastify = require('fastify')({
 const cors = require('@fastify/cors');
 const helmet = require('@fastify/helmet');
 const compress = require('@fastify/compress');
-const static = require('@fastify/static');
+const fastifyStatic = require('@fastify/static');
 const rateLimiter = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 const authMiddleware = require('./middleware/auth');
@@ -18,18 +18,20 @@ const authMiddleware = require('./middleware/auth');
 require('dotenv').config();
 const path = require('path');
 const { testConnection } = require('./config/database');
+const { syncModels } = require('./models');
 const { uploadRoot, publicPrefix } = require('./config/uploads');
 
 // Módulos
 const { fileRoutes } = require('./modules/files');
 const { eventsRoutes } = require('./modules/events');
+const { empresaImagesRoutes } = require('./modules/empresaImages');
 
 async function buildApp() {
   // Plugins globales
   await fastify.register(cors, {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-auth-empresa-id'],
     credentials: true
   });
 
@@ -48,10 +50,10 @@ async function buildApp() {
 
   await fastify.register(rateLimiter);
 
-  // Servir archivos estáticos optimizado
-  await fastify.register(static, {
+  // Servir archivos estáticos optimizado bajo /api/uploads/
+  await fastify.register(fastifyStatic, {
     root: uploadRoot,
-    prefix: publicPrefix,
+    prefix: publicPrefix, // '/api/uploads/'
     cacheControl: true,
     maxAge: 31536000000, // 1 año
     immutable: true,
@@ -63,41 +65,39 @@ async function buildApp() {
     }
   });
 
+  // Alias para retrocompatibilidad con /uploads/
+  await fastify.register(fastifyStatic, {
+    root: uploadRoot,
+    prefix: '/uploads/',
+    decorateReply: false,
+    cacheControl: true,
+    maxAge: 31536000000,
+    immutable: true,
+    lastModified: true,
+    etag: true
+  });
+
   // Middleware de autenticación (opcional)
   // fastify.addHook('preHandler', authMiddleware);
 
-  // Rutas de los módulos
+  // Rutas de los módulos (TODAS bajo /api)
   await fastify.register(fileRoutes, { prefix: '/api' });
   await fastify.register(eventsRoutes, { prefix: '/api' });
+  await fastify.register(empresaImagesRoutes, { prefix: '/api' });
+  // Alias de entrega /media para compatibilidad si fuera necesario
+  await fastify.register(empresaImagesRoutes);
 
-  // Ruta de health check
-  fastify.get('/health', async (request, reply) => {
-    return {
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    };
-  });
-
-  // Ruta raíz
-  fastify.get('/', async (request, reply) => {
-    return {
-      name: 'Gallery API',
-      version: '1.0.0',
-      endpoints: {
-        events: '/api/events',
-        gallery: '/api/events/:eventId/gallery',
-        upload: '/api/events/:eventId/images',
-        stats: '/api/stats/events'
-      }
-    };
+  // Rutas de health check mínima
+  fastify.get('/api/health', async (request, reply) => {
+    return { status: 'OK' };
   });
 
   // Error handler global
   fastify.setErrorHandler(errorHandler);
 
-  // Conectar a base de datos
+  // Conectar a base de datos y sincronizar modelos
   await testConnection();
+  await syncModels();
   await fastify.ready();
 
   return fastify;

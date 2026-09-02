@@ -4,23 +4,23 @@ require('dotenv').config();
 const sequelize = new Sequelize({
   dialect: 'mysql',
   host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 3306,
+  port: parseInt(process.env.DB_PORT, 10) || 3306,
   database: process.env.DB_NAME || 'gallery_db',
   username: process.env.DB_USER || 'gallery_user',
   password: process.env.DB_PASSWORD || 'password',
   
   pool: {
-    max: parseInt(process.env.DB_POOL_MAX) || 20,
-    min: parseInt(process.env.DB_POOL_MIN) || 5,
-    acquire: parseInt(process.env.DB_POOL_ACQUIRE) || 30000,
-    idle: parseInt(process.env.DB_POOL_IDLE) || 10000,
+    max: parseInt(process.env.DB_POOL_MAX, 10) || 20,
+    min: parseInt(process.env.DB_POOL_MIN, 10) || 0,
+    acquire: parseInt(process.env.DB_POOL_ACQUIRE, 10) || 30000,
+    idle: parseInt(process.env.DB_POOL_IDLE, 10) || 10000,
     evict: 1000
   },
   
-    dialectOptions: {
+  dialectOptions: {
     charset: 'utf8mb4',
     connectTimeout: 60000,
- 
+    decimalNumbers: true
   },
   
   logging: process.env.NODE_ENV === 'development' ? console.log : false,
@@ -35,8 +35,8 @@ const sequelize = new Sequelize({
   
   timezone: '-05:00',
   retry: {
-    max: 5,
-    timeout: 30000
+    max: 3,
+    timeout: 10000
   }
 });
 
@@ -50,13 +50,13 @@ const testConnection = async () => {
     
     return true;
   } catch (error) {
-    console.error('❌ Unable to connect to MySQL database:', error);
+    console.error('❌ Unable to connect to MySQL database:', error.message);
     console.error('📌 Verifica:');
     console.error('   - Servidor MySQL está corriendo');
     console.error('   - Credenciales correctas');
     console.error('   - Base de datos existe');
     console.error('   - Usuario tiene permisos');
-    process.exit(1);
+    throw error;
   }
 };
 

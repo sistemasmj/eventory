@@ -117,17 +117,22 @@ const GalleryImage = sequelize.define('GalleryImage', {
   
   hooks: {
     beforeDestroy: async (image) => {
-      try {
-        // Eliminar archivos físicos
-        const rawPath = image.ruta_raw.replace(/^uploads[\\/]/, '').replace(/[\\/]/g, path.sep);
-        const thumbPath = image.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/[\\/]/g, path.sep);
-        await fs.unlink(path.join(uploadRoot, rawPath));
-        await fs.unlink(path.join(uploadRoot, thumbPath));
-        console.log(`🗑️ Archivos eliminados para imagen ${image.id}`);
-      } catch (error) {
-        console.error(`❌ Error eliminando archivos para imagen ${image.id}:`, error);
-        // No lanzamos error para no bloquear el proceso
-      }
+      const deleteSafe = async (filePath) => {
+        if (!filePath) return;
+        try {
+          const cleanPath = filePath.replace(/^uploads[\\/]/, '').replace(/[\\/]/g, path.sep);
+          const fullPath = path.join(uploadRoot, cleanPath);
+          await fs.unlink(fullPath);
+        } catch (error) {
+          if (error.code !== 'ENOENT') {
+            console.error(`❌ Error eliminando archivo físico ${filePath}:`, error.message);
+          }
+        }
+      };
+
+      await deleteSafe(image.ruta_raw);
+      await deleteSafe(image.ruta_thumb);
+      console.log(`🗑️ Archivo y registro eliminados para imagen ${image.id}`);
     },
     afterCreate: (image) => {
       console.log(`📸 Imagen creada: ${image.nombre} (${image.id})`);

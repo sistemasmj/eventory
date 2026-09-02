@@ -35,6 +35,15 @@ async function fileRoutes(fastify, options) {
     handler: FileController.deleteImage.bind(FileController)
   });
 
+  // Eliminar múltiples archivos por ID
+  fastify.post('/files/delete', {
+    handler: FileController.deleteFiles.bind(FileController)
+  });
+
+  fastify.delete('/files/delete', {
+    handler: FileController.deleteFiles.bind(FileController)
+  });
+
   fastify.put('/images/:imageId/order', {
     handler: FileController.updateOrder.bind(FileController)
   });
