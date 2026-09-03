@@ -1,11 +1,14 @@
 const { Imagen } = require('../../models');
 const imageProcessor = require('../../utils/imageProcessor');
+const videoProcessor = require('../../utils/videoProcessor');
 const {
   generateImageToken,
   ensureImageDirectory,
   getImageDirectory,
   removeImageDirectory,
-  getImageFilePath
+  getImageFilePath,
+  isVideoMime,
+  isVideoExt
 } = require('../../config/imageStorage');
 const fs = require('fs').promises;
 const path = require('path');
@@ -31,7 +34,10 @@ class EmpresaImagesService {
     // UNA sola consulta optimizada a MySQL sin N+1
     const images = await Imagen.findAll({
       where,
-      attributes: ['id', 'image_token', 'orden', 'width', 'height', 'size', 'nombre_original', 'created_at'],
+      attributes: [
+        'id', 'image_token', 'tipo', 'duracion', 'extension', 
+        'orden', 'width', 'height', 'size', 'nombre_original', 'created_at'
+      ],
       order: [
         ['orden', 'ASC'],
         ['id', 'ASC']
@@ -41,16 +47,36 @@ class EmpresaImagesService {
       raw: true
     });
 
-    const items = images.map(img => ({
-      id: img.id,
-      token: img.image_token,
-      orden: img.orden,
-      urls: {
-        thumb: `/api/media/${empresaId}/${img.image_token}/thumb`,
-        preview: `/api/media/${empresaId}/${img.image_token}/preview`,
-        original: `/api/media/${empresaId}/${img.image_token}/original`
+    const items = images.map((img) => {
+      const isVideo = img.tipo === 'video';
+      const token = img.image_token;
+
+      const urls = {
+        thumb: `/api/media/${empresaId}/${token}/${isVideo ? 'poster' : 'thumb'}`,
+        preview: `/api/media/${empresaId}/${token}/${isVideo ? 'original' : 'preview'}`,
+        original: `/api/media/${empresaId}/${token}/original`
+      };
+
+      if (isVideo) {
+        urls.poster = `/api/media/${empresaId}/${token}/poster`;
       }
-    }));
+
+      return {
+        id: img.id,
+        type: img.tipo || 'image',
+        token,
+        orden: img.orden,
+        duracion: img.duracion || null,
+        extension: img.extension || (isVideo ? 'mp4' : 'jpg'),
+        width: img.width,
+        height: img.height,
+        size: img.size,
+        nombre: img.nombre_original || (isVideo ? `video-${token}` : `image-${token}`),
+        nombre_original: img.nombre_original,
+        fecha: img.created_at,
+        urls
+      };
+    });
 
     return {
       total: items.length,
@@ -59,7 +85,7 @@ class EmpresaImagesService {
   }
 
   /**
-   * Procesa la subida de imágenes para una empresa
+   * Procesa la subida de imágenes y videos para una empresa
    * Genera tokens criptográficos, estructura de carpetas privada y variantes WebP
    */
   async uploadImages(empresaId, files, options = {}) {
@@ -68,10 +94,15 @@ class EmpresaImagesService {
 
     for (const file of files) {
       try {
-        const imageResult = await this.uploadLimit(async () => {
-          return await this.processSingleImage(empresaId, file, options);
+        const isVideo = isVideoMime(file.mimetype) || isVideoExt(file.filename);
+        const mediaResult = await this.uploadLimit(async () => {
+          if (isVideo) {
+            return await this.processSingleVideo(empresaId, file, options);
+          } else {
+            return await this.processSingleImage(empresaId, file, options);
+          }
         });
-        uploaded.push(imageResult);
+        uploaded.push(mediaResult);
       } catch (error) {
         errors.push({
           filename: file.filename || 'desconocido',
@@ -88,12 +119,107 @@ class EmpresaImagesService {
   }
 
   /**
+   * Procesa y almacena un video individual
+   */
+  async processSingleVideo(empresaId, file, options = {}) {
+    const token = generateImageToken();
+    const ext = (path.extname(file.filename || '').replace(/^\./, '') || 'mp4').toLowerCase();
+    const originalName = file.filename || `video-${token}.${ext}`;
+
+    // 1. Crear directorio físico privado /data/storage/images/empresa-{id}/{token}/
+    const mediaDir = await ensureImageDirectory(empresaId, token);
+    const originalVideoPath = path.join(mediaDir, `original.${ext}`);
+    const posterPath = path.join(mediaDir, 'poster.webp');
+    const thumbPath = path.join(mediaDir, 'thumb.webp');
+
+    // 2. Extraer buffer de video
+    let fileBuffer;
+    if (Buffer.isBuffer(file.file || file.data)) {
+      fileBuffer = file.file || file.data;
+    } else if (file.file && typeof file.file.pipe === 'function') {
+      const chunks = [];
+      for await (const chunk of file.file) {
+        chunks.push(chunk);
+      }
+      fileBuffer = Buffer.concat(chunks);
+    } else if (file.buffer) {
+      fileBuffer = file.buffer;
+    } else if (typeof file.toBuffer === 'function') {
+      fileBuffer = await file.toBuffer();
+    } else {
+      throw new Error('Formato de archivo de video inválido o buffer no disponible');
+    }
+
+    // Validar límite estricto de 50MB (50 megas)
+    if (fileBuffer.length > 52428800) {
+      throw new Error(`El video "${originalName}" excede el límite máximo permitido de 50MB`);
+    }
+
+    await fs.writeFile(originalVideoPath, fileBuffer);
+
+    // 3. Generar poster WebP y metadatos de video
+    const posterMeta = await videoProcessor.generatePoster(originalVideoPath, posterPath, {
+      title: originalName,
+      width: 1280,
+      quality: 82
+    });
+
+    // Crear thumb.webp como copia/versión del poster para compatibilidad total
+    try {
+      await sharp(posterPath)
+        .resize({ width: 300, height: 300, fit: 'cover', position: 'center' })
+        .webp({ quality: 75 })
+        .toFile(thumbPath);
+    } catch {
+      await fs.copyFile(posterPath, thumbPath).catch(() => {});
+    }
+
+    const videoMeta = await videoProcessor.getVideoMetadata(originalVideoPath);
+
+    // 4. Guardar metadata en MySQL
+    const imagen = await Imagen.create({
+      empresa_id: empresaId,
+      image_token: token,
+      tipo: 'video',
+      duracion: videoMeta.duration || null,
+      extension: ext,
+      orden: options.orden || 0,
+      estado: 1,
+      nombre_original: originalName,
+      mime_type: file.mimetype || `video/${ext}`,
+      size: fileBuffer.length,
+      width: videoMeta.width || posterMeta.width || 1920,
+      height: videoMeta.height || posterMeta.height || 1080,
+      metadata: {
+        poster_size: posterMeta.size,
+        uploaded_at: new Date().toISOString()
+      }
+    });
+
+    return {
+      id: imagen.id,
+      type: 'video',
+      token: imagen.image_token,
+      orden: imagen.orden,
+      duracion: imagen.duracion,
+      extension: ext,
+      urls: {
+        thumb: `/api/media/${empresaId}/${imagen.image_token}/poster`,
+        poster: `/api/media/${empresaId}/${imagen.image_token}/poster`,
+        preview: `/api/media/${empresaId}/${imagen.image_token}/original`,
+        original: `/api/media/${empresaId}/${imagen.image_token}/original`
+      }
+    };
+  }
+
+  /**
    * Procesa y almacena una imagen individual
    */
   async processSingleImage(empresaId, file, options = {}) {
     // 1. Generar token único y seguro (Date.now() + randomBytes)
     const token = generateImageToken();
-    const originalName = file.filename || `image-${token}.jpg`;
+    const ext = (path.extname(file.filename || '').replace(/^\./, '') || 'jpg').toLowerCase();
+    const originalName = file.filename || `image-${token}.${ext}`;
 
     // 2. Crear directorio físico privado /data/storage/images/empresa-{id}/{token}/
     const imageDir = await ensureImageDirectory(empresaId, token);
@@ -146,10 +272,13 @@ class EmpresaImagesService {
     const imagen = await Imagen.create({
       empresa_id: empresaId,
       image_token: token,
+      tipo: 'image',
+      duracion: null,
+      extension: ext,
       orden: options.orden || 0,
       estado: 1,
       nombre_original: originalName,
-      mime_type: 'image/jpeg',
+      mime_type: file.mimetype || 'image/jpeg',
       size: fileBuffer.length,
       width: previewMetadata.width,
       height: previewMetadata.height,
@@ -161,8 +290,11 @@ class EmpresaImagesService {
 
     return {
       id: imagen.id,
+      type: 'image',
       token: imagen.image_token,
       orden: imagen.orden,
+      duracion: null,
+      extension: ext,
       urls: {
         thumb: `/api/media/${empresaId}/${imagen.image_token}/thumb`,
         preview: `/api/media/${empresaId}/${imagen.image_token}/preview`,

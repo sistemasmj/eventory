@@ -1,10 +1,10 @@
 const FileController = require('./files.controller');
 
 async function fileRoutes(fastify, options) {
-  // Configurar multipart para uploads
+  // Configurar multipart para uploads (soporte para videos hasta 50MB)
   await fastify.register(require('@fastify/multipart'), {
     limits: {
-      fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10485760,
+      fileSize: parseInt(process.env.MAX_VIDEO_SIZE) || parseInt(process.env.MAX_FILE_SIZE) || 52428800, // 50MB
       files: 20,
       fields: 10
     },
@@ -16,7 +16,7 @@ async function fileRoutes(fastify, options) {
   fastify.post('/events/:eventId/images', {
     config: {
       rateLimit: {
-        max: 10,
+        max: 60,
         timeWindow: '1 minute'
       }
     },
@@ -46,6 +46,28 @@ async function fileRoutes(fastify, options) {
 
   fastify.put('/images/:imageId/order', {
     handler: FileController.updateOrder.bind(FileController)
+  });
+
+  // Actualizar orden en bloque de la galería
+  fastify.put('/events/:eventId/gallery/order', {
+    handler: FileController.updateGalleryOrder.bind(FileController)
+  });
+
+  fastify.post('/events/:eventId/gallery/order', {
+    handler: FileController.updateGalleryOrder.bind(FileController)
+  });
+
+  // Rotar imagen a la derecha o izquierda
+  fastify.post('/images/:imageId/rotate', {
+    handler: FileController.rotateImage.bind(FileController)
+  });
+
+  fastify.put('/images/:imageId/rotate', {
+    handler: FileController.rotateImage.bind(FileController)
+  });
+
+  fastify.post('/files/rotate', {
+    handler: FileController.rotateImage.bind(FileController)
   });
 
   fastify.get('/stats/images', {

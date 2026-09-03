@@ -91,4 +91,43 @@ describe('Ciclo de Vida de Imagen (Subida, Procesamiento Sharp y Borrado)', () =
     const { access } = await import('fs/promises');
     await expect(access(tokenDir)).rejects.toThrow();
   });
+
+  it('3. Debe procesar la subida de un video, crear poster.webp y registrar como video en BD', async () => {
+    let videoToken;
+    vi.spyOn(Imagen, 'create').mockImplementationOnce(async (data) => {
+      videoToken = data.image_token;
+      return {
+        id: 1000,
+        empresa_id: data.empresa_id,
+        image_token: data.image_token,
+        tipo: data.tipo,
+        duracion: data.duracion,
+        orden: data.orden,
+        estado: data.estado
+      };
+    });
+
+    const mockVideoBuffer = Buffer.from('FAKE_MP4_HEADER_DATA_FOR_TESTING');
+    const mockFile = {
+      filename: 'clip_boda.mp4',
+      mimetype: 'video/mp4',
+      buffer: mockVideoBuffer
+    };
+
+    const result = await EmpresaImagesService.uploadImages(empresaId, [mockFile]);
+
+    expect(result.success).toBe(true);
+    expect(result.uploaded.length).toBe(1);
+    expect(result.uploaded[0].type).toBe('video');
+    expect(result.uploaded[0].urls.poster).toBeDefined();
+    expect(result.uploaded[0].urls.poster).toContain(`/media/${empresaId}/${result.uploaded[0].token}/poster`);
+
+    // Comprobar que los archivos de video y poster se crearon en disco
+    const token = result.uploaded[0].token;
+    const tokenDir = path.join(imageStorageRoot, `empresa-${empresaId}`, token);
+    const { access } = await import('fs/promises');
+
+    await expect(access(path.join(tokenDir, 'original.mp4'))).resolves.toBeUndefined();
+    await expect(access(path.join(tokenDir, 'poster.webp'))).resolves.toBeUndefined();
+  });
 });

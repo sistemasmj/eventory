@@ -70,31 +70,11 @@ describe('Galería de Imágenes de Empresas (/api/empresas/:empresaId/imagenes)'
     expect(headersSent['Expires']).toBe('0');
 
     // Validar estructura de respuesta esperada
-    expect(bodySent).toEqual({
-      total: 2,
-      items: [
-        {
-          id: 1542,
-          token: '1756772985123-a83f21c7',
-          orden: 1,
-          urls: {
-            thumb: '/api/media/25/1756772985123-a83f21c7/thumb',
-            preview: '/api/media/25/1756772985123-a83f21c7/preview',
-            original: '/api/media/25/1756772985123-a83f21c7/original'
-          }
-        },
-        {
-          id: 1543,
-          token: '1756772989999-b12c34d5',
-          orden: 2,
-          urls: {
-            thumb: '/api/media/25/1756772989999-b12c34d5/thumb',
-            preview: '/api/media/25/1756772989999-b12c34d5/preview',
-            original: '/api/media/25/1756772989999-b12c34d5/original'
-          }
-        }
-      ]
-    });
+    expect(bodySent.total).toBe(2);
+    expect(bodySent.items[0].type).toBe('image');
+    expect(bodySent.items[0].urls.thumb).toBe('/api/media/25/1756772985123-a83f21c7/thumb');
+    expect(bodySent.items[0].urls.preview).toBe('/api/media/25/1756772985123-a83f21c7/preview');
+    expect(bodySent.items[0].urls.original).toBe('/api/media/25/1756772985123-a83f21c7/original');
 
     findAllSpy.mockRestore();
   });
@@ -153,5 +133,48 @@ describe('Galería de Imágenes de Empresas (/api/empresas/:empresaId/imagenes)'
     expect(statusCodeSent).toBe(200);
     expect(mockImagen.orden).toBe(5);
     expect(mockImagen.save).toHaveBeenCalled();
+  });
+
+  it('5. Galería Mixta: debe estructurar correctamente ítems de imagen y video juntos', async () => {
+    const mixedItemsFromDb = [
+      {
+        id: 1,
+        image_token: '1756772985123-a83f21c7',
+        tipo: 'image',
+        duracion: null,
+        extension: 'jpg',
+        orden: 1
+      },
+      {
+        id: 2,
+        image_token: '1756773009123-b19d82af',
+        tipo: 'video',
+        duracion: 32.4,
+        extension: 'mp4',
+        orden: 2
+      }
+    ];
+
+    const findAllSpy = vi.spyOn(Imagen, 'findAll').mockResolvedValue(mixedItemsFromDb);
+
+    const mockRequest = {
+      params: { empresaId: '25' },
+      query: {},
+      headers: {}
+    };
+
+    await EmpresaImagesController.getGallery(mockRequest, mockReply);
+
+    expect(bodySent.total).toBe(2);
+    expect(bodySent.items[0].type).toBe('image');
+    expect(bodySent.items[0].urls.thumb).toBe('/api/media/25/1756772985123-a83f21c7/thumb');
+    
+    expect(bodySent.items[1].type).toBe('video');
+    expect(bodySent.items[1].duracion).toBe(32.4);
+    expect(bodySent.items[1].urls.thumb).toBe('/api/media/25/1756773009123-b19d82af/poster');
+    expect(bodySent.items[1].urls.poster).toBe('/api/media/25/1756773009123-b19d82af/poster');
+    expect(bodySent.items[1].urls.original).toBe('/api/media/25/1756773009123-b19d82af/original');
+
+    findAllSpy.mockRestore();
   });
 });

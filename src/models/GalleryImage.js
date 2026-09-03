@@ -20,6 +20,16 @@ const GalleryImage = sequelize.define('GalleryImage', {
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   },
+  categoria_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'categorias',
+      key: 'id'
+    },
+    onDelete: 'SET NULL',
+    onUpdate: 'CASCADE'
+  },
   nombre: {
     type: DataTypes.STRING(255),
     allowNull: false
@@ -35,6 +45,19 @@ const GalleryImage = sequelize.define('GalleryImage', {
   ruta_thumb: {
     type: DataTypes.STRING(500),
     allowNull: false
+  },
+  tipo: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'image',
+    allowNull: false
+  },
+  duracion: {
+    type: DataTypes.FLOAT,
+    allowNull: true
+  },
+  ruta_poster: {
+    type: DataTypes.STRING(500),
+    allowNull: true
   },
   extension: {
     type: DataTypes.STRING(10),
@@ -132,7 +155,10 @@ const GalleryImage = sequelize.define('GalleryImage', {
 
       await deleteSafe(image.ruta_raw);
       await deleteSafe(image.ruta_thumb);
-      console.log(`🗑️ Archivo y registro eliminados para imagen ${image.id}`);
+      if (image.ruta_poster) {
+        await deleteSafe(image.ruta_poster);
+      }
+      console.log(`🗑️ Archivo y registro eliminados para medio ${image.id}`);
     },
     afterCreate: (image) => {
       console.log(`📸 Imagen creada: ${image.nombre} (${image.id})`);

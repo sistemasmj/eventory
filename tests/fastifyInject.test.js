@@ -92,16 +92,25 @@ describe('Fastify Inject Integration Tests (Rutas de Imágenes y X-Accel-Redirec
 
     const json = JSON.parse(response.payload);
     expect(json.total).toBe(1);
-    expect(json.items[0]).toEqual({
-      id: 100,
-      token: '1756772985123-a83f21c7',
-      orden: 1,
-      urls: {
-        thumb: '/api/media/25/1756772985123-a83f21c7/thumb',
-        preview: '/api/media/25/1756772985123-a83f21c7/preview',
-        original: '/api/media/25/1756772985123-a83f21c7/original'
-      }
+    expect(json.items[0].id).toBe(100);
+    expect(json.items[0].token).toBe('1756772985123-a83f21c7');
+    expect(json.items[0].type).toBe('image');
+    expect(json.items[0].urls).toEqual({
+      thumb: '/api/media/25/1756772985123-a83f21c7/thumb',
+      preview: '/api/media/25/1756772985123-a83f21c7/preview',
+      original: '/api/media/25/1756772985123-a83f21c7/original'
     });
+  });
+
+  it('GET /api/media/25/1756772985123-a83f21c7/poster -> 200 con poster.webp', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/25/1756772985123-a83f21c7/poster'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-accel-redirect']).toBe('/protected/empresa-25/1756772985123-a83f21c7/poster.webp');
+    expect(response.headers['content-type']).toBe('image/webp');
   });
 
   it('GET /api/health -> 200 OK', async () => {

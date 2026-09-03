@@ -25,7 +25,29 @@ async function migrateImagenesTable() {
     `);
     console.log('✅ Tabla imagenes creada o verificada');
 
-    // 2. Verificar índices requeridos
+    // 2. Verificar y agregar columnas multimedia si no existen
+    const [existingCols] = await sequelize.query('SHOW COLUMNS FROM imagenes');
+    const colNames = existingCols.map(c => c.Field);
+
+    if (!colNames.includes('tipo')) {
+      await sequelize.query("ALTER TABLE imagenes ADD COLUMN tipo VARCHAR(20) NOT NULL DEFAULT 'image' AFTER nombre_original");
+      console.log("✅ Columna 'tipo' agregada a imagenes");
+    }
+
+    if (!colNames.includes('duracion')) {
+      await sequelize.query("ALTER TABLE imagenes ADD COLUMN duracion FLOAT NULL AFTER tipo");
+      console.log("✅ Columna 'duracion' agregada a imagenes");
+    }
+
+    if (!colNames.includes('extension')) {
+      await sequelize.query("ALTER TABLE imagenes ADD COLUMN extension VARCHAR(10) NULL AFTER duracion");
+      console.log("✅ Columna 'extension' agregada a imagenes");
+    }
+
+    // Asegurar que registros existentes no queden nulos en tipo
+    await sequelize.query("UPDATE imagenes SET tipo = 'image' WHERE tipo IS NULL OR tipo = ''");
+
+    // 3. Verificar índices requeridos
     const [indexes] = await sequelize.query('SHOW INDEX FROM imagenes');
     const existingIndexes = indexes.map(i => i.Key_name);
 
@@ -49,10 +71,11 @@ async function migrateImagenesTable() {
     console.table(columns);
 
     console.log('🎉 Migración de imagenes completada exitosamente.');
-    process.exit(0);
+    if (require.main === module) process.exit(0);
   } catch (err) {
     console.error('❌ Error durante la migración de imagenes:', err);
-    process.exit(1);
+    if (require.main === module) process.exit(1);
+    throw err;
   }
 }
 

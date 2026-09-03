@@ -37,6 +37,22 @@ const Imagen = sequelize.define('Imagen', {
     allowNull: true,
     comment: 'Nombre original del archivo subido'
   },
+  tipo: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'image',
+    allowNull: false,
+    comment: 'Tipo de contenido multimedia: image o video'
+  },
+  duracion: {
+    type: DataTypes.FLOAT,
+    allowNull: true,
+    comment: 'Duración en segundos si el medio es video'
+  },
+  extension: {
+    type: DataTypes.STRING(10),
+    allowNull: true,
+    comment: 'Extensión original del archivo (jpg, mp4, etc.)'
+  },
   mime_type: {
     type: DataTypes.STRING(50),
     allowNull: true

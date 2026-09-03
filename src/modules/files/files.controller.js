@@ -12,15 +12,45 @@ class FileController {
       const { eventId } = request.params;
       const files = [];
 
-      // Leer las partes multipart sin depender del nombre del campo enviado por el navegador.
-      for await (const part of request.parts()) {
-        if (part.type === 'file' && part.file) {
-          const buffer = await part.toBuffer();
-          files.push({
-            ...part,
-            file: Readable.from(buffer),
-            size: buffer.length
-          });
+      // Leer archivos multipart de forma segura acumulando chunks del stream
+      if (typeof request.files === 'function') {
+        const parts = request.files();
+        for await (const part of parts) {
+          if (part && part.file) {
+            const chunks = [];
+            for await (const chunk of part.file) {
+              chunks.push(chunk);
+            }
+            const buffer = Buffer.concat(chunks);
+            files.push({
+              filename: part.filename,
+              mimetype: part.mimetype,
+              encoding: part.encoding,
+              file: Readable.from(buffer),
+              buffer: buffer,
+              data: buffer,
+              size: buffer.length
+            });
+          }
+        }
+      } else if (typeof request.parts === 'function') {
+        for await (const part of request.parts()) {
+          if (part.type === 'file' && part.file) {
+            const chunks = [];
+            for await (const chunk of part.file) {
+              chunks.push(chunk);
+            }
+            const buffer = Buffer.concat(chunks);
+            files.push({
+              filename: part.filename,
+              mimetype: part.mimetype,
+              encoding: part.encoding,
+              file: Readable.from(buffer),
+              buffer: buffer,
+              data: buffer,
+              size: buffer.length
+            });
+          }
         }
       }
 
@@ -31,7 +61,7 @@ class FileController {
         });
       }
 
-      // Validar archivos
+      // Validar archivos (imágenes hasta 20MB, videos hasta 50MB)
       const validation = validateUpload(files);
       if (!validation.valid) {
         return reply.status(400).send({
@@ -41,8 +71,8 @@ class FileController {
       }
 
       const result = await FileService.uploadImages(eventId, files, {
-        quality: request.body?.quality || 82,
-        thumbSize: request.body?.thumbSize || 300
+        quality: 82,
+        thumbSize: 300
       });
 
       return reply.status(200).send(result);
@@ -51,7 +81,7 @@ class FileController {
       console.error('Error en uploadImages:', error);
       return reply.status(500).send({
         success: false,
-        message: error.message || 'Error al subir imágenes'
+        message: error.message || 'Error al subir archivos multimedia'
       });
     }
   }
@@ -62,11 +92,12 @@ class FileController {
   async getGallery(request, reply) {
     try {
       const { eventId } = request.params;
-      const { limit, offset } = request.query;
+      const { limit, offset, categoria_id, categoria } = request.query;
 
       const gallery = await FileService.getGallery(eventId, {
         limit: parseInt(limit) || 100,
-        offset: parseInt(offset) || 0
+        offset: parseInt(offset) || 0,
+        categoria_id: categoria_id || categoria
       });
 
       // La lista cambia después de cada subida; nunca reutilizar una respuesta antigua.
@@ -206,6 +237,65 @@ class FileController {
       return reply.status(500).send({
         success: false,
         message: error.message || 'Error al obtener estadísticas'
+      });
+    }
+  }
+
+  /**
+   * Rotar imagen (girar a la derecha o izquierda)
+   */
+  async rotateImage(request, reply) {
+    try {
+      const imageId = request.params.imageId || request.body?.imageId || request.body?.id;
+      const { direction, degrees, tipo } = request.body || {};
+
+      if (!imageId) {
+        return reply.status(400).send({
+          success: false,
+          message: 'El identificador de la imagen es requerido'
+        });
+      }
+
+      const targetDirection = direction || tipo || (degrees < 0 ? 'left' : 'right');
+
+      const result = await FileService.rotateImage(imageId, {
+        direction: targetDirection,
+        degrees
+      });
+
+      return reply.status(200).send(result);
+    } catch (error) {
+      console.error('Error en rotateImage:', error);
+      const isNotFound = error.message === 'Imagen no encontrada';
+      return reply.status(isNotFound ? 404 : 500).send({
+        success: false,
+        message: error.message || 'Error al rotar la imagen'
+      });
+    }
+  }
+
+  /**
+   * Actualizar orden de la galería (bulk)
+   */
+  async updateGalleryOrder(request, reply) {
+    try {
+      const { eventId } = request.params;
+      const { items } = request.body || {};
+
+      if (!Array.isArray(items)) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Se requiere una lista de elementos (items)'
+        });
+      }
+
+      const result = await FileService.updateGalleryOrder(eventId, items);
+      return reply.status(200).send(result);
+    } catch (error) {
+      console.error('Error en updateGalleryOrder:', error);
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Error al actualizar el orden de la galería'
       });
     }
   }

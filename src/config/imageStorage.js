@@ -9,7 +9,7 @@ const defaultStorageRoot = process.platform === 'win32'
 
 const imageStorageRoot = process.env.IMAGE_STORAGE_PATH || defaultStorageRoot;
 
-// Mapeo estricto de tipos de imagen a nombres de archivo y tipos MIME
+// Mapeo estricto de tipos de medios a nombres de archivo y tipos MIME por defecto
 const ALLOWED_TYPES = {
   thumb: {
     fileName: 'thumb.webp',
@@ -19,18 +19,55 @@ const ALLOWED_TYPES = {
     fileName: 'preview.webp',
     contentType: 'image/webp'
   },
+  poster: {
+    fileName: 'poster.webp',
+    contentType: 'image/webp'
+  },
   original: {
     fileName: 'original.jpg',
     contentType: 'image/jpeg'
   }
 };
 
-// Regex estricto para validar el identificador único de imagen
+const ALLOWED_VIDEO_MIMES = [
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/ogg'
+];
+
+const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.ogv'];
+
+const MIME_TO_EXT = {
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/x-msvideo': 'avi',
+  'video/ogg': 'ogv',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp'
+};
+
+const EXT_TO_MIME = {
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  avi: 'video/x-msvideo',
+  ogv: 'video/ogg',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp'
+};
+
+// Regex estricto para validar el identificador único de imagen/medio
 // Formato esperado: <timestamp_ms>-<8_hex_chars>, ejemplo: 1756772985123-a83f21c7
 const TOKEN_REGEX = /^\d{10,16}-[a-f0-9]{8}$/i;
 
 /**
- * Genera un identificador único y criptográficamente seguro para la imagen
+ * Genera un identificador único y criptográficamente seguro para el medio
  * Evita colisiones en el mismo milisegundo mediante bytes aleatorios seguros.
  */
 function generateImageToken() {
@@ -48,19 +85,45 @@ function isValidImageToken(token) {
 }
 
 /**
- * Obtiene la ruta del directorio físico para una imagen específica
+ * Comprueba si un MIME type corresponde a video
+ */
+function isVideoMime(mime) {
+  if (!mime || typeof mime !== 'string') return false;
+  return ALLOWED_VIDEO_MIMES.includes(mime.toLowerCase()) || mime.toLowerCase().startsWith('video/');
+}
+
+/**
+ * Comprueba si una extensión corresponde a video
+ */
+function isVideoExt(ext) {
+  if (!ext || typeof ext !== 'string') return false;
+  const cleanExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+  return ALLOWED_VIDEO_EXTENSIONS.includes(cleanExt);
+}
+
+/**
+ * Obtiene la ruta del directorio físico para una imagen o video específico
  */
 function getImageDirectory(empresaId, imageToken) {
   return path.join(imageStorageRoot, `empresa-${empresaId}`, imageToken);
 }
 
 /**
- * Obtiene la ruta física absoluta de un tipo de imagen
+ * Obtiene la ruta física absoluta de un tipo de imagen/video
  */
-function getImageFilePath(empresaId, imageToken, type) {
+function getImageFilePath(empresaId, imageToken, type, extension = 'jpg') {
   const typeConfig = ALLOWED_TYPES[type];
   if (!typeConfig) return null;
-  return path.join(getImageDirectory(empresaId, imageToken), typeConfig.fileName);
+
+  const dir = getImageDirectory(empresaId, imageToken);
+
+  if (type === 'original') {
+    const cleanExt = (extension || 'jpg').replace(/^\./, '').toLowerCase();
+    const candidatePath = path.join(dir, `original.${cleanExt}`);
+    return candidatePath;
+  }
+
+  return path.join(dir, typeConfig.fileName);
 }
 
 /**
@@ -73,7 +136,7 @@ async function ensureImageDirectory(empresaId, imageToken) {
 }
 
 /**
- * Elimina el directorio físico y todos sus archivos de una imagen
+ * Elimina el directorio físico y todos sus archivos de una imagen/video
  */
 async function removeImageDirectory(empresaId, imageToken) {
   const dirPath = getImageDirectory(empresaId, imageToken);
@@ -91,9 +154,15 @@ async function removeImageDirectory(empresaId, imageToken) {
 module.exports = {
   imageStorageRoot,
   ALLOWED_TYPES,
+  ALLOWED_VIDEO_MIMES,
+  ALLOWED_VIDEO_EXTENSIONS,
+  MIME_TO_EXT,
+  EXT_TO_MIME,
   TOKEN_REGEX,
   generateImageToken,
   isValidImageToken,
+  isVideoMime,
+  isVideoExt,
   getImageDirectory,
   getImageFilePath,
   ensureImageDirectory,

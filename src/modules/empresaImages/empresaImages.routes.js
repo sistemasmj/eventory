@@ -5,7 +5,7 @@ async function empresaImagesRoutes(fastify, options) {
   if (!fastify.hasContentTypeParser('multipart/form-data')) {
     await fastify.register(require('@fastify/multipart'), {
       limits: {
-        fileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 20971520, // 20MB
+        fileSize: parseInt(process.env.MAX_VIDEO_SIZE, 10) || parseInt(process.env.MAX_FILE_SIZE, 10) || 52428800, // 50MB
         files: 20
       }
     });
@@ -24,7 +24,7 @@ async function empresaImagesRoutes(fastify, options) {
   fastify.post('/empresas/:empresaId/imagenes', {
     config: {
       rateLimit: {
-        max: 30,
+        max: 60,
         timeWindow: '1 minute'
       }
     },

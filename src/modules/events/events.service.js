@@ -1,4 +1,5 @@
-const { Event, GalleryImage, sequelize } = require('../../models');
+const { Event, GalleryImage, Song, sequelize } = require('../../models');
+const { publicPrefix } = require('../../config/uploads');
 const cache = require('../../utils/cache');
 const { Op } = require('sequelize');
 const crypto = require('crypto');
@@ -13,6 +14,9 @@ class EventsService {
     const nombreCliente = data.nombre_cliente || data.nombre || null;
     const fechaEvento = data.fecha_evento || null;
     const notas = data.notas || data.descripcion || null;
+    const cancionId = data.cancion_id !== undefined && data.cancion_id !== null && data.cancion_id !== '' 
+      ? parseInt(data.cancion_id, 10) 
+      : null;
     // Generar código único aleatorio UUID con números y letras
     const codigoGenerado = data.codigo || crypto.randomUUID();
 
@@ -29,6 +33,7 @@ class EventsService {
       presupuesto: data.presupuesto !== undefined && data.presupuesto !== null ? parseFloat(data.presupuesto) : null,
       nombre_paquete: data.nombre_paquete || null,
       notas: notas,
+      cancion_id: cancionId,
       estado: estado,
       fecha_registro: fechaRegistro,
       // Compatibilidad
@@ -79,6 +84,7 @@ class EventsService {
         'presupuesto',
         'nombre_paquete',
         'notas',
+        'cancion_id',
         'estado',
         'fecha_registro',
         'nombre',
@@ -87,15 +93,23 @@ class EventsService {
         'created_at',
         'updated_at'
       ],
-      include: [{
-        model: GalleryImage,
-        as: 'images',
-        attributes: ['id', 'ruta_thumb', 'ruta_raw'],
-        limit: 1,
-        order: [['orden', 'ASC'], ['fecha_subida', 'ASC']],
-        required: false,
-        where: { estado: 'activo' }
-      }],
+      include: [
+        {
+          model: GalleryImage,
+          as: 'images',
+          attributes: ['id', 'ruta_thumb', 'ruta_raw'],
+          limit: 1,
+          order: [['orden', 'ASC'], ['fecha_subida', 'ASC']],
+          required: false,
+          where: { estado: 'activo' }
+        },
+        {
+          model: Song,
+          as: 'cancion',
+          attributes: ['id', 'nombre', 'ruta_archivo', 'mime_type', 'duracion', 'size'],
+          required: false
+        }
+      ],
       order: [['fecha_registro', 'DESC'], ['id', 'DESC']],
       limit: options.limit || 100,
       offset: options.offset || 0
@@ -114,6 +128,11 @@ class EventsService {
         };
         delete eventData.images;
       }
+      if (eventData.cancion) {
+        const cleanPath = (eventData.cancion.ruta_archivo || '').replace(/\\/g, '/').replace(/^uploads\//, '');
+        eventData.cancion.url = `${publicPrefix}${cleanPath}`;
+        eventData.cancion.streamUrl = `/api/songs/${eventData.cancion.id}/stream`;
+      }
       return eventData;
     });
 
@@ -126,14 +145,22 @@ class EventsService {
    */
   async getEventById(id) {
     const event = await Event.findByPk(id, {
-      include: [{
-        model: GalleryImage,
-        as: 'images',
-        where: { estado: 'activo' },
-        attributes: ['id', 'nombre', 'ruta_thumb', 'ruta_raw'],
-        order: [['orden', 'ASC'], ['fecha_subida', 'ASC']],
-        required: false
-      }]
+      include: [
+        {
+          model: GalleryImage,
+          as: 'images',
+          where: { estado: 'activo' },
+          attributes: ['id', 'nombre', 'ruta_thumb', 'ruta_raw'],
+          order: [['orden', 'ASC'], ['fecha_subida', 'ASC']],
+          required: false
+        },
+        {
+          model: Song,
+          as: 'cancion',
+          attributes: ['id', 'nombre', 'ruta_archivo', 'mime_type', 'duracion', 'size'],
+          required: false
+        }
+      ]
     });
 
     if (!event) {
@@ -143,6 +170,11 @@ class EventsService {
     const eventData = event.toJSON();
     if (eventData.presupuesto !== null && eventData.presupuesto !== undefined) {
       eventData.presupuesto = parseFloat(eventData.presupuesto);
+    }
+    if (eventData.cancion) {
+      const cleanPath = (eventData.cancion.ruta_archivo || '').replace(/\\/g, '/').replace(/^uploads\//, '');
+      eventData.cancion.url = `${publicPrefix}${cleanPath}`;
+      eventData.cancion.streamUrl = `/api/songs/${eventData.cancion.id}/stream`;
     }
 
     return eventData;
@@ -166,6 +198,9 @@ class EventsService {
     }
     if (updatePayload.tipo_ceremonia !== undefined && updatePayload.tipo_ceremonia !== null) {
       updatePayload.tipo_ceremonia = parseInt(updatePayload.tipo_ceremonia, 10);
+    }
+    if (updatePayload.cancion_id !== undefined) {
+      updatePayload.cancion_id = updatePayload.cancion_id ? parseInt(updatePayload.cancion_id, 10) : null;
     }
     if (updatePayload.nombre_cliente && !updatePayload.nombre) {
       updatePayload.nombre = updatePayload.nombre_cliente;

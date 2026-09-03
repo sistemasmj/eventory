@@ -1,15 +1,28 @@
 const path = require('path');
 
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.avif'];
+const ALLOWED_EXTENSIONS = [
+  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.avif',
+  '.mp4', '.webm', '.mov', '.avi', '.ogv', '.m4v'
+];
 const ALLOWED_MIMES = [
   'image/jpeg',
   'image/png',
   'image/webp',
   'image/gif',
   'image/bmp',
-  'image/tiff'
+  'image/tiff',
+  'image/avif',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/ogg',
+  'video/mp4v-es',
+  'video/x-m4v'
 ];
-const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 10485760; // 10MB
+const MAX_IMAGE_SIZE = parseInt(process.env.MAX_IMAGE_SIZE) || 20971520; // 20MB
+const MAX_VIDEO_SIZE = parseInt(process.env.MAX_VIDEO_SIZE) || 52428800; // 50MB (50 megas)
+const MAX_FILE_SIZE = MAX_VIDEO_SIZE;
 
 /**
  * Validar archivos subidos
@@ -25,19 +38,26 @@ function validateUpload(files) {
   }
 
   for (const file of files) {
-    // Validar tamaño
-    if (file.size > MAX_FILE_SIZE) {
+    const ext = path.extname(file.filename || '').toLowerCase();
+    const isVideo = (file.mimetype && file.mimetype.startsWith('video/')) ||
+      ['.mp4', '.webm', '.mov', '.avi', '.ogv', '.m4v'].includes(ext);
+    const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    const maxMb = isVideo ? 50 : 20;
+
+    // Validar tamaño máximo (50MB para videos, 20MB para fotos)
+    if (file.size && file.size > maxSize) {
       errors.push({
         filename: file.filename,
-        error: `El archivo excede el tamaño máximo de ${MAX_FILE_SIZE / 1048576}MB`
+        error: `El ${isVideo ? 'video' : 'archivo'} excede el tamaño máximo permitido de ${maxMb}MB`
       });
       continue;
     }
 
-    // Validar extensión solo cuando el navegador no informa el tipo MIME.
-    const ext = path.extname(file.filename).toLowerCase();
-    const isImageMime = typeof file.mimetype === 'string' && file.mimetype.startsWith('image/');
-    if (!isImageMime && !ALLOWED_EXTENSIONS.includes(ext)) {
+    // Validar extensión
+    const isImageOrVideoMime = typeof file.mimetype === 'string' &&
+      (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/'));
+
+    if (!isImageOrVideoMime && !ALLOWED_EXTENSIONS.includes(ext)) {
       errors.push({
         filename: file.filename,
         error: `Extensión no permitida: ${ext}. Permitidas: ${ALLOWED_EXTENSIONS.join(', ')}`
@@ -46,7 +66,7 @@ function validateUpload(files) {
     }
 
     // Validar mime type (si está disponible)
-    if (file.mimetype && !isImageMime && !ALLOWED_MIMES.includes(file.mimetype)) {
+    if (file.mimetype && !isImageOrVideoMime && !ALLOWED_MIMES.includes(file.mimetype)) {
       errors.push({
         filename: file.filename,
         error: `Tipo de archivo no permitido: ${file.mimetype}`

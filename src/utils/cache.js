@@ -48,6 +48,18 @@ class Cache {
   }
 
   /**
+   * Eliminar del cache por coincidencia de patrón o prefijo
+   */
+  delPattern(pattern) {
+    if (!pattern) return;
+    for (const key of this.cache.keys()) {
+      if (key.includes(pattern)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  /**
    * Limpiar todo el cache
    */
   clear() {

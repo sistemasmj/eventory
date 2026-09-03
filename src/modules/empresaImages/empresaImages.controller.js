@@ -2,8 +2,10 @@ const EmpresaImagesService = require('./empresaImages.service');
 const {
   ALLOWED_TYPES,
   isValidImageToken,
-  getImageFilePath
+  getImageFilePath,
+  getImageDirectory
 } = require('../../config/imageStorage');
+const path = require('path');
 const { Readable } = require('stream');
 const fs = require('fs').promises;
 const { createReadStream } = require('fs');
@@ -36,7 +38,7 @@ class EmpresaImagesController {
   /**
    * Endpoint protegido /media/:empresaId/:imageToken/:type
    * Emite la cabecera X-Accel-Redirect para que Nginx sirva los bytes directamente desde disco en producción.
-   * En desarrollo local o accesos directos sin Nginx, sirve el archivo físico directamente para que no falle el renderizado.
+   * Soporta posters WebP, streaming de video con HTTP Range Requests (206 Partial Content) y fallback directo.
    */
   async serveMedia(request, reply) {
     const { empresaId, imageToken, type } = request.params;
@@ -57,12 +59,12 @@ class EmpresaImagesController {
       });
     }
 
-    // 3. Validar tipo permitido (thumb, preview, original exclusivamente)
+    // 3. Validar tipo permitido (thumb, preview, poster, original)
     const typeConfig = ALLOWED_TYPES[type];
     if (!typeConfig) {
       return reply.status(400).send({
         success: false,
-        error: `Tipo '${type}' no permitido. Valores válidos: thumb, preview, original`
+        error: `Tipo '${type}' no permitido. Valores válidos: thumb, preview, poster, original`
       });
     }
 
@@ -83,24 +85,94 @@ class EmpresaImagesController {
       });
     }
 
-    // 6. Construir ruta interna de Nginx y cabeceras
-    const internalPath = `/protected/empresa-${empresaId}/${imageToken}/${typeConfig.fileName}`;
+    // 6. Determinar archivo físico y Content-Type
+    const dir = getImageDirectory(empresaId, imageToken);
+    let targetFileName = typeConfig.fileName;
+    let contentType = typeConfig.contentType;
+    let isVideo = false;
+
+    if (type === 'original') {
+      // Buscar archivos de video u otros formatos compatibles en disco
+      const videoCandidates = ['original.mp4', 'original.webm', 'original.mov', 'original.jpg', 'original.png', 'original.webp'];
+      for (const candidate of videoCandidates) {
+        try {
+          await fs.access(path.join(dir, candidate));
+          targetFileName = candidate;
+          if (candidate.endsWith('.mp4')) {
+            contentType = 'video/mp4';
+            isVideo = true;
+          } else if (candidate.endsWith('.webm')) {
+            contentType = 'video/webm';
+            isVideo = true;
+          } else if (candidate.endsWith('.mov')) {
+            contentType = 'video/quicktime';
+            isVideo = true;
+          } else if (candidate.endsWith('.png')) {
+            contentType = 'image/png';
+          } else if (candidate.endsWith('.webp')) {
+            contentType = 'image/webp';
+          } else {
+            contentType = 'image/jpeg';
+          }
+          break;
+        } catch {
+          // Continuar buscando
+        }
+      }
+    } else if (type === 'thumb') {
+      // Si thumb.webp no existe pero existe poster.webp, usar poster.webp
+      try {
+        await fs.access(path.join(dir, 'thumb.webp'));
+      } catch {
+        try {
+          await fs.access(path.join(dir, 'poster.webp'));
+          targetFileName = 'poster.webp';
+        } catch {
+          // Mantener targetFileName por defecto
+        }
+      }
+    }
+
+    // 7. Construir ruta interna de Nginx y cabeceras
+    const internalPath = `/protected/empresa-${empresaId}/${imageToken}/${targetFileName}`;
 
     reply.header('X-Accel-Redirect', internalPath);
-    reply.header('Content-Type', typeConfig.contentType);
+    reply.header('Content-Type', contentType);
     reply.header('Cache-Control', 'private, max-age=31536000, immutable');
     reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Accept-Ranges', 'bytes');
 
-    // 7. En desarrollo o acceso directo sin Nginx, servimos el archivo desde disco si existe
-    const filePath = getImageFilePath(empresaId, imageToken, type);
-    if (filePath) {
-      try {
-        await fs.access(filePath);
-        const fileStream = createReadStream(filePath);
-        return reply.status(200).send(fileStream);
-      } catch {
-        // En producción, Nginx se encarga de servir el archivo desde el alias protegido
+    // 8. En desarrollo o acceso directo sin Nginx, servimos el archivo desde disco con Range Requests
+    const filePath = path.join(dir, targetFileName);
+    try {
+      const stat = await fs.stat(filePath);
+      const fileSize = stat.size;
+      const range = request.headers.range;
+
+      // Soporte para HTTP Range Requests (206 Partial Content) para videos
+      if (range && isVideo) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+        if (start >= fileSize || end >= fileSize) {
+          reply.header('Content-Range', `bytes */${fileSize}`);
+          return reply.status(416).send('Requested range not satisfiable');
+        }
+
+        const chunksize = end - start + 1;
+        const fileStream = createReadStream(filePath, { start, end });
+
+        reply.status(206);
+        reply.header('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+        reply.header('Content-Length', chunksize);
+        return reply.send(fileStream);
       }
+
+      const fileStream = createReadStream(filePath);
+      return reply.status(200).send(fileStream);
+    } catch {
+      // En producción, Nginx se encarga de servir el archivo desde el alias protegido
     }
 
     return reply.status(200).send('');
@@ -175,28 +247,53 @@ class EmpresaImagesController {
 
       const files = [];
 
-      // Procesar partes multipart
-      for await (const part of request.parts()) {
-        if (part.type === 'file' && part.file) {
-          const buffer = await part.toBuffer();
-          files.push({
-            filename: part.filename,
-            mimetype: part.mimetype,
-            buffer: buffer,
-            size: buffer.length
-          });
+      // Procesar partes multipart de forma segura acumulando chunks del stream
+      if (typeof request.files === 'function') {
+        const parts = request.files();
+        for await (const part of parts) {
+          if (part && part.file) {
+            const chunks = [];
+            for await (const chunk of part.file) {
+              chunks.push(chunk);
+            }
+            const buffer = Buffer.concat(chunks);
+            files.push({
+              filename: part.filename,
+              mimetype: part.mimetype,
+              buffer: buffer,
+              data: buffer,
+              size: buffer.length
+            });
+          }
+        }
+      } else if (typeof request.parts === 'function') {
+        for await (const part of request.parts()) {
+          if (part.type === 'file' && part.file) {
+            const chunks = [];
+            for await (const chunk of part.file) {
+              chunks.push(chunk);
+            }
+            const buffer = Buffer.concat(chunks);
+            files.push({
+              filename: part.filename,
+              mimetype: part.mimetype,
+              buffer: buffer,
+              data: buffer,
+              size: buffer.length
+            });
+          }
         }
       }
 
       if (files.length === 0) {
         return reply.status(400).send({
           success: false,
-          error: 'No se enviaron archivos de imagen'
+          error: 'No se enviaron archivos multimedia'
         });
       }
 
       const result = await EmpresaImagesService.uploadImages(parseInt(empresaId, 10), files, {
-        quality: request.body?.quality || 82
+        quality: 82
       });
 
       return reply.status(201).send(result);

@@ -147,4 +147,24 @@ describe('Media Delivery con X-Accel-Redirect (empresaImages.controller.js)', ()
     expect(isValidImageToken('')).toBe(false);
     expect(isValidImageToken(null)).toBe(false);
   });
+
+  it('7. Soporte de Poster: debe responder 200 con X-Accel-Redirect a poster.webp para tipo poster', async () => {
+    const validToken = '1756772985123-a83f21c7';
+    const mockRequest = {
+      params: {
+        empresaId: '25',
+        imageToken: validToken,
+        type: 'poster'
+      },
+      headers: {},
+      raw: { url: `/media/25/${validToken}/poster` }
+    };
+
+    await EmpresaImagesController.serveMedia(mockRequest, mockReply);
+
+    expect(statusCodeSent).toBe(200);
+    expect(headersSent['X-Accel-Redirect']).toBe(`/protected/empresa-25/${validToken}/poster.webp`);
+    expect(headersSent['Content-Type']).toBe('image/webp');
+    expect(headersSent['Accept-Ranges']).toBe('bytes');
+  });
 });

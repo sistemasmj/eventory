@@ -66,6 +66,11 @@ const Event = sequelize.define('Event', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  cancion_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    comment: 'ID de la canción seleccionada para la secuencia del evento'
+  },
   estado: {
     type: DataTypes.STRING(50),
     defaultValue: 'En Preparación',

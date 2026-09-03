@@ -36,6 +36,7 @@ class EventsController {
           presupuesto: raw.presupuesto !== null && raw.presupuesto !== undefined ? parseFloat(raw.presupuesto) : null,
           nombre_paquete: raw.nombre_paquete,
           notas: raw.notas,
+          cancion_id: raw.cancion_id || null,
           estado: raw.estado,
           fecha_registro: raw.fecha_registro ? new Date(raw.fecha_registro).toISOString() : new Date().toISOString(),
           created_at: raw.createdAt ? new Date(raw.createdAt).toISOString() : (raw.created_at ? new Date(raw.created_at).toISOString() : new Date().toISOString()),
