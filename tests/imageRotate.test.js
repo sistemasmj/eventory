@@ -111,6 +111,8 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
     const json = JSON.parse(res.payload);
     expect(json.success).toBe(true);
     expect(json.message).toContain('derecha');
+    expect(mockImage.version).toBe(2);
+    expect(mockImage.metadata.v).toBe(2);
 
     // Verificar que el archivo rotado ahora tiene width 100 y height 200
     const rawBuf = await fs.readFile(rawPath);
@@ -131,7 +133,8 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
       width: 100,
       height: 200,
       size: 1024,
-      metadata: {},
+      version: 2,
+      metadata: { v: 2 },
       changed: vi.fn(),
       save: vi.fn().mockResolvedValue(true),
       toJSON: function() {
@@ -141,6 +144,7 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
           width: this.width,
           height: this.height,
           size: this.size,
+          version: this.version,
           metadata: this.metadata
         };
       }
@@ -158,11 +162,79 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
     const json = JSON.parse(res.payload);
     expect(json.success).toBe(true);
     expect(json.message).toContain('izquierda');
+    expect(mockImage.version).toBe(3);
+    expect(mockImage.metadata.v).toBe(3);
 
     // Vuelve a quedar 200x100
     const rawBuf = await fs.readFile(rawPath);
     const meta = await sharp(rawBuf).metadata();
     expect(meta.width).toBe(200);
     expect(meta.height).toBe(100);
+  });
+
+  it('GET /api/events/:id/gallery -> Genera URLs con query param ?v=version y no afecta imágenes no modificadas', async () => {
+    const mockImagesList = [
+      {
+        id: 'img-1-uuid',
+        nombre: 'img1.webp',
+        nombre_original: 'img1.jpg',
+        tipo: 'image',
+        duracion: null,
+        ruta_raw: 'uploads/raw/img1.webp',
+        ruta_thumb: 'uploads/thumbs/thumb_img1.webp',
+        ruta_poster: null,
+        extension: 'webp',
+        width: 1920,
+        height: 1080,
+        size: 50000,
+        orden: 1,
+        categoria_id: 1,
+        version: 3,
+        fecha_subida: new Date(),
+        metadata: { v: 3 }
+      },
+      {
+        id: 'img-2-uuid',
+        nombre: 'img2.webp',
+        nombre_original: 'img2.jpg',
+        tipo: 'image',
+        duracion: null,
+        ruta_raw: 'uploads/raw/img2.webp',
+        ruta_thumb: 'uploads/thumbs/thumb_img2.webp',
+        ruta_poster: null,
+        extension: 'webp',
+        width: 1920,
+        height: 1080,
+        size: 60000,
+        orden: 2,
+        categoria_id: 1,
+        version: 1,
+        fecha_subida: new Date(),
+        metadata: { v: 1 }
+      }
+    ];
+
+    vi.spyOn(GalleryImage, 'findAll').mockResolvedValueOnce(mockImagesList);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/events/99/gallery?categoria_id=1'
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.payload);
+    expect(json.data.length).toBe(2);
+
+    // Primera imagen modificada (v=3)
+    expect(json.data[0].version).toBe(3);
+    expect(json.data[0].urlRaw).toContain('?v=3');
+    expect(json.data[0].urlThumb).toContain('?v=3');
+    expect(json.data[0].urls.thumb).toContain('?v=3');
+    expect(json.data[0].urls.original).toContain('?v=3');
+
+    // Segunda imagen intacta (v=1)
+    expect(json.data[1].version).toBe(1);
+    expect(json.data[1].urlRaw).toContain('?v=1');
+    expect(json.data[1].urlThumb).toContain('?v=1');
   });
 });

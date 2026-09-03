@@ -70,9 +70,13 @@ class FileController {
         });
       }
 
+      const rawCatId = request.query?.categoria_id || request.query?.categoria || 2;
+      const categoria_id = parseInt(rawCatId, 10) || 2;
+
       const result = await FileService.uploadImages(eventId, files, {
         quality: 82,
-        thumbSize: 300
+        thumbSize: 300,
+        categoria_id
       });
 
       return reply.status(200).send(result);

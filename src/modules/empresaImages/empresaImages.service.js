@@ -36,7 +36,7 @@ class EmpresaImagesService {
       where,
       attributes: [
         'id', 'image_token', 'tipo', 'duracion', 'extension', 
-        'orden', 'width', 'height', 'size', 'nombre_original', 'created_at'
+        'orden', 'width', 'height', 'size', 'version', 'nombre_original', 'created_at'
       ],
       order: [
         ['orden', 'ASC'],
@@ -50,15 +50,17 @@ class EmpresaImagesService {
     const items = images.map((img) => {
       const isVideo = img.tipo === 'video';
       const token = img.image_token;
+      const versionNumber = img.version || 1;
+      const vParam = versionNumber > 1 ? `?v=${versionNumber}` : '';
 
       const urls = {
-        thumb: `/api/media/${empresaId}/${token}/${isVideo ? 'poster' : 'thumb'}`,
-        preview: `/api/media/${empresaId}/${token}/${isVideo ? 'original' : 'preview'}`,
-        original: `/api/media/${empresaId}/${token}/original`
+        thumb: `/api/media/${empresaId}/${token}/${isVideo ? 'poster' : 'thumb'}${vParam}`,
+        preview: `/api/media/${empresaId}/${token}/${isVideo ? 'original' : 'preview'}${vParam}`,
+        original: `/api/media/${empresaId}/${token}/original${vParam}`
       };
 
       if (isVideo) {
-        urls.poster = `/api/media/${empresaId}/${token}/poster`;
+        urls.poster = `/api/media/${empresaId}/${token}/poster${vParam}`;
       }
 
       return {
@@ -66,6 +68,7 @@ class EmpresaImagesService {
         type: img.tipo || 'image',
         token,
         orden: img.orden,
+        version: versionNumber,
         duracion: img.duracion || null,
         extension: img.extension || (isVideo ? 'mp4' : 'jpg'),
         width: img.width,

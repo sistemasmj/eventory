@@ -70,6 +70,12 @@ const Imagen = sequelize.define('Imagen', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  version: {
+    type: DataTypes.INTEGER,
+    defaultValue: 1,
+    allowNull: false,
+    comment: 'Versión incremental del medio para cache busting'
+  },
   metadata: {
     type: DataTypes.JSON,
     allowNull: true

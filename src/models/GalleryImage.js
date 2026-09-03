@@ -97,6 +97,12 @@ const GalleryImage = sequelize.define('GalleryImage', {
     type: DataTypes.INTEGER,
     defaultValue: 0
   },
+  version: {
+    type: DataTypes.INTEGER,
+    defaultValue: 1,
+    allowNull: false,
+    comment: 'Versión incremental del medio para cache busting'
+  },
   metadata: {
     type: DataTypes.JSON,
     allowNull: true

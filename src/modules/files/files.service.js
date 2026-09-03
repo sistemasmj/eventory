@@ -171,12 +171,14 @@ class FileService {
       width: videoMeta.width || posterMeta.width || 1920,
       height: videoMeta.height || posterMeta.height || 1080,
       estado: 'activo',
-      categoria_id: options.categoria_id !== undefined ? (options.categoria_id ? parseInt(options.categoria_id, 10) : null) : 1,
+      categoria_id: options.categoria_id !== undefined ? (options.categoria_id ? parseInt(options.categoria_id, 10) : null) : 2,
       orden: options.orden !== undefined ? parseInt(options.orden, 10) : 0,
+      version: 1,
       metadata: {
         original_extension: ext,
         original_size: fileBuffer.length,
         poster_size: posterMeta.size,
+        v: 1,
         processed_at: new Date().toISOString()
       }
     };
@@ -241,11 +243,13 @@ class FileService {
       width: metadata.width,
       height: metadata.height,
       estado: 'activo',
-      categoria_id: options.categoria_id !== undefined ? (options.categoria_id ? parseInt(options.categoria_id, 10) : null) : 1,
+      categoria_id: options.categoria_id !== undefined ? (options.categoria_id ? parseInt(options.categoria_id, 10) : null) : 2,
       orden: options.orden !== undefined ? parseInt(options.orden, 10) : 0,
+      version: 1,
       metadata: {
         original_extension: extension,
         original_size: file.size,
+        v: 1,
         processed_at: new Date().toISOString()
       }
     };
@@ -295,7 +299,7 @@ class FileService {
       attributes: [
         'id', 'nombre', 'nombre_original', 'tipo', 'duracion', 'ruta_raw', 
         'ruta_thumb', 'ruta_poster', 'extension', 'width', 'height',
-        'size', 'orden', 'categoria_id', 'fecha_subida', 'metadata'
+        'size', 'orden', 'categoria_id', 'version', 'fecha_subida', 'metadata'
       ],
       order: [['orden', 'ASC'], ['fecha_subida', 'DESC']],
       limit: options.limit || 100,
@@ -305,7 +309,8 @@ class FileService {
     // Formatear respuesta con URLs completas y objeto urls unificado (con versionado si fue rotada/modificada)
     const result = images.map(img => {
       const isVideo = img.tipo === 'video';
-      const versionParam = img.metadata?.v ? `?v=${img.metadata.v}` : '';
+      const versionNumber = img.version || img.metadata?.v || 1;
+      const versionParam = `?v=${versionNumber}`;
       const rawUrl = `${publicPrefix}${img.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}${versionParam}`;
       const thumbUrl = `${publicPrefix}${img.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}${versionParam}`;
       const posterUrl = img.ruta_poster
@@ -333,6 +338,7 @@ class FileService {
         orden: img.orden,
         categoria_id: img.categoria_id,
         categoriaId: img.categoria_id,
+        version: versionNumber,
         fecha: img.fecha_subida,
         metadata: img.metadata
       };
@@ -377,7 +383,7 @@ async getAllGalleries(options = {}) {
         where: { estado: 'activo' },
         attributes: [
           'id', 'nombre', 'ruta_raw', 'ruta_thumb', 
-          'width', 'height', 'size'
+          'width', 'height', 'size', 'version', 'metadata'
         ],
         limit: 1,
         order: [['orden', 'ASC'], ['fecha_subida', 'ASC']],
@@ -395,16 +401,19 @@ async getAllGalleries(options = {}) {
     const result = events.map(event => {
       // Obtener el conteo del literal
       const imageCount = parseInt(event.getDataValue('imageCount')) || 0;
+      const firstImage = event.images && event.images.length > 0 ? event.images[0] : null;
+      const coverVersion = firstImage ? (firstImage.version || firstImage.metadata?.v || 1) : 1;
       
       return {
         id: event.id,
         nombre: event.nombre,
         fecha: event.fecha,
         estado: event.estado,
-        coverImage: event.images && event.images.length > 0 ? {
-          id: event.images[0].id,
-          urlThumb: `${publicPrefix}${event.images[0].ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}`,
-          urlRaw: `${publicPrefix}${event.images[0].ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}`
+        coverImage: firstImage ? {
+          id: firstImage.id,
+          urlThumb: `${publicPrefix}${firstImage.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}?v=${coverVersion}`,
+          urlRaw: `${publicPrefix}${firstImage.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}?v=${coverVersion}`,
+          version: coverVersion
         } : null,
         imageCount
       };
@@ -623,32 +632,34 @@ async getAllGalleries(options = {}) {
         console.warn('Advertencia al regenerar miniatura tras rotar:', thumbErr.message);
       }
 
-      // Actualizar registro en DB
+      // Actualizar registro en DB con incremento estricto de versión para cache busting
       galleryImage.width = rawMeta.width || galleryImage.height;
       galleryImage.height = rawMeta.height || galleryImage.width;
       galleryImage.size = rotatedRawBuffer.length;
+      const nextVersion = (galleryImage.version ? parseInt(galleryImage.version, 10) : 1) + 1;
+      galleryImage.version = nextVersion;
+
       const currentMeta = galleryImage.metadata || {};
       const currentRotation = currentMeta.rotation || 0;
       const newRotation = (currentRotation + (angle === 270 ? -90 : 90) + 360) % 360;
-      const newVersion = Date.now();
       galleryImage.metadata = {
         ...currentMeta,
         rotation: newRotation,
-        v: newVersion,
+        v: nextVersion,
         rotated_at: new Date().toISOString()
       };
       galleryImage.changed('metadata', true);
       await galleryImage.save();
 
       // Invalidar caché
-      cache.del(`gallery:${galleryImage.event_id}`);
+      cache.delPattern(`gallery:${galleryImage.event_id}`);
       cache.del('gallery:all');
 
       // Emitir evento
       fileEvents.emit(EVENTS.IMAGE_UPDATED, {
         imageId: galleryImage.id,
         eventId: galleryImage.event_id,
-        updates: { rotation: newRotation }
+        updates: { rotation: newRotation, version: nextVersion }
       });
 
       return {
@@ -705,6 +716,20 @@ async getAllGalleries(options = {}) {
             await fs.writeFile(thumbPath, rotated);
           } catch {}
         }
+
+        const nextEmpresaVersion = (empresaImg.version ? parseInt(empresaImg.version, 10) : 1) + 1;
+        empresaImg.version = nextEmpresaVersion;
+        const currentMeta = empresaImg.metadata || {};
+        const currentRotation = currentMeta.rotation || 0;
+        const newRotation = (currentRotation + (angle === 270 ? -90 : 90) + 360) % 360;
+        empresaImg.metadata = {
+          ...currentMeta,
+          rotation: newRotation,
+          v: nextEmpresaVersion,
+          rotated_at: new Date().toISOString()
+        };
+        empresaImg.changed('metadata', true);
+        await empresaImg.save();
 
         return {
           success: true,

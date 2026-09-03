@@ -91,12 +91,13 @@ const syncModels = async (options = {}) => {
         await sequelize.query("ALTER TABLE imagenes ADD COLUMN duracion FLOAT NULL AFTER tipo");
         console.log("✅ Columna 'duracion' agregada a imagenes");
       }
-      if (!imgColNames.includes('extension')) {
-        await sequelize.query("ALTER TABLE imagenes ADD COLUMN extension VARCHAR(10) NULL AFTER duracion");
-        console.log("✅ Columna 'extension' agregada a imagenes");
+      if (!imgColNames.includes('version')) {
+        await sequelize.query("ALTER TABLE imagenes ADD COLUMN version INT NOT NULL DEFAULT 1 AFTER metadata");
+        console.log("✅ Columna 'version' agregada a imagenes");
       }
 
       await sequelize.query("UPDATE imagenes SET tipo = 'image' WHERE tipo IS NULL OR tipo = ''");
+      await sequelize.query("UPDATE imagenes SET version = 1 WHERE version IS NULL OR version < 1");
     } catch (err) {
       console.warn('⚠️ Nota sobre columnas de imagenes:', err.message);
     }
@@ -126,8 +127,13 @@ const syncModels = async (options = {}) => {
         await sequelize.query("ALTER TABLE gallery_images ADD COLUMN orden INT NOT NULL DEFAULT 0 AFTER fecha_subida");
         console.log("✅ Columna 'orden' agregada a gallery_images");
       }
+      if (!galleryColNames.includes('version')) {
+        await sequelize.query("ALTER TABLE gallery_images ADD COLUMN version INT NOT NULL DEFAULT 1 AFTER metadata");
+        console.log("✅ Columna 'version' agregada a gallery_images");
+      }
 
       await sequelize.query("UPDATE gallery_images SET tipo = 'image' WHERE tipo IS NULL OR tipo = ''");
+      await sequelize.query("UPDATE gallery_images SET version = 1 WHERE version IS NULL OR version < 1");
     } catch (err) {
       console.warn('⚠️ Nota sobre columnas de gallery_images:', err.message);
     }
