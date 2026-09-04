@@ -115,6 +115,10 @@ const syncModels = async (options = {}) => {
         await sequelize.query("ALTER TABLE gallery_images ADD COLUMN duracion FLOAT NULL AFTER tipo");
         console.log("✅ Columna 'duracion' agregada a gallery_images");
       }
+      if (!galleryColNames.includes('ruta_temp')) {
+        await sequelize.query("ALTER TABLE gallery_images ADD COLUMN ruta_temp VARCHAR(500) NULL AFTER ruta_raw");
+        console.log("✅ Columna 'ruta_temp' agregada a gallery_images");
+      }
       if (!galleryColNames.includes('ruta_poster')) {
         await sequelize.query("ALTER TABLE gallery_images ADD COLUMN ruta_poster VARCHAR(500) NULL AFTER ruta_thumb");
         console.log("✅ Columna 'ruta_poster' agregada a gallery_images");

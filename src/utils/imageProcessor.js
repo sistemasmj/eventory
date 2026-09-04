@@ -6,9 +6,9 @@ const { createWriteStream } = require('fs');
 
 class ImageProcessor {
   /**
-   * Procesar imagen desde stream
+   * Procesar imagen desde stream, buffer o ruta de archivo
    */
-  async processImage(stream, options = {}) {
+  async processImage(input, options = {}) {
     const {
       outputPath,
       quality = 82,
@@ -18,7 +18,29 @@ class ImageProcessor {
     } = options;
 
     try {
+      if (Buffer.isBuffer(input) || typeof input === 'string') {
+        const resultMeta = await sharp(input)
+          .rotate() // Auto-rotar según orientación EXIF
+          .resize({
+            width: maxWidth,
+            height: maxHeight,
+            fit: 'inside',
+            withoutEnlargement: true
+          })
+          .webp({ quality, effort: 4 })
+          .withMetadata()
+          .toFile(outputPath);
+
+        return {
+          size: resultMeta.size,
+          width: resultMeta.width,
+          height: resultMeta.height,
+          format: resultMeta.format
+        };
+      }
+
       const transformer = sharp()
+        .rotate()
         .resize({
           width: maxWidth,
           height: maxHeight,
@@ -31,7 +53,7 @@ class ImageProcessor {
       const writeStream = createWriteStream(outputPath);
 
       // Pipeline con backpressure automático
-      await pipeline(stream, transformer, writeStream);
+      await pipeline(input, transformer, writeStream);
 
       // Obtener metadata
       const metadata = await sharp(outputPath).metadata();

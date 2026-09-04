@@ -226,7 +226,7 @@ class EmpresaImagesService {
 
     // 2. Crear directorio físico privado /data/storage/images/empresa-{id}/{token}/
     const imageDir = await ensureImageDirectory(empresaId, token);
-    const originalPath = path.join(imageDir, 'original.jpg');
+    const originalPath = path.join(imageDir, `original.${ext}`);
     const previewPath = path.join(imageDir, 'preview.webp');
     const thumbPath = path.join(imageDir, 'thumb.webp');
 

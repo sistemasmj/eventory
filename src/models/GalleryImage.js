@@ -42,6 +42,10 @@ const GalleryImage = sequelize.define('GalleryImage', {
     type: DataTypes.STRING(500),
     allowNull: false
   },
+  ruta_temp: {
+    type: DataTypes.STRING(500),
+    allowNull: true
+  },
   ruta_thumb: {
     type: DataTypes.STRING(500),
     allowNull: false
@@ -160,6 +164,7 @@ const GalleryImage = sequelize.define('GalleryImage', {
       };
 
       await deleteSafe(image.ruta_raw);
+      await deleteSafe(image.ruta_temp);
       await deleteSafe(image.ruta_thumb);
       if (image.ruta_poster) {
         await deleteSafe(image.ruta_poster);

@@ -18,8 +18,10 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
   let app;
   const testImageId = 'test-rotate-image-uuid';
   const testRawRel = path.join('raw', 'test_rotate.webp');
+  const testTempRel = path.join('temp', 'test_rotate.webp');
   const testThumbRel = path.join('thumbs', 'thumb_test_rotate.webp');
   const rawPath = path.join(uploadRoot, testRawRel);
+  const tempPath = path.join(uploadRoot, testTempRel);
   const thumbPath = path.join(uploadRoot, testThumbRel);
 
   beforeAll(async () => {
@@ -27,6 +29,7 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
 
     // Crear directorios y archivos de prueba sintéticos con Sharp
     await fs.mkdir(path.join(uploadRoot, 'raw'), { recursive: true });
+    await fs.mkdir(path.join(uploadRoot, 'temp'), { recursive: true });
     await fs.mkdir(path.join(uploadRoot, 'thumbs'), { recursive: true });
 
     // Imagen de 200x100 (horizontal para notar la rotación a 100x200)
@@ -38,6 +41,15 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
         background: { r: 255, g: 0, b: 0, alpha: 1 }
       }
     }).webp().toFile(rawPath);
+
+    await sharp({
+      create: {
+        width: 200,
+        height: 100,
+        channels: 4,
+        background: { r: 255, g: 0, b: 0, alpha: 1 }
+      }
+    }).webp().toFile(tempPath);
 
     await sharp({
       create: {
@@ -54,6 +66,7 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
       await app.close();
     }
     await fs.unlink(rawPath).catch(() => {});
+    await fs.unlink(tempPath).catch(() => {});
     await fs.unlink(thumbPath).catch(() => {});
   });
 
@@ -80,6 +93,7 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
       nombre_original: 'test_rotate.webp',
       tipo: 'image',
       ruta_raw: `uploads/${testRawRel.replace(/\\/g, '/')}`,
+      ruta_temp: `uploads/${testTempRel.replace(/\\/g, '/')}`,
       ruta_thumb: `uploads/${testThumbRel.replace(/\\/g, '/')}`,
       width: 200,
       height: 100,
@@ -119,6 +133,11 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
     const meta = await sharp(rawBuf).metadata();
     expect(meta.width).toBe(100);
     expect(meta.height).toBe(200);
+
+    const tempBuf = await fs.readFile(tempPath);
+    const tempMeta = await sharp(tempBuf).metadata();
+    expect(tempMeta.width).toBe(100);
+    expect(tempMeta.height).toBe(200);
   });
 
   it('POST /api/images/:imageId/rotate -> 200 y rota la imagen a la izquierda (-90°)', async () => {
@@ -129,6 +148,7 @@ describe('Image Rotation API Tests (POST /api/images/:imageId/rotate)', () => {
       nombre_original: 'test_rotate.webp',
       tipo: 'image',
       ruta_raw: `uploads/${testRawRel.replace(/\\/g, '/')}`,
+      ruta_temp: `uploads/${testTempRel.replace(/\\/g, '/')}`,
       ruta_thumb: `uploads/${testThumbRel.replace(/\\/g, '/')}`,
       width: 100,
       height: 200,

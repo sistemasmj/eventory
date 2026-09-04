@@ -106,7 +106,7 @@ class FileService {
     await this.ensureDirectories();
 
     const rawRelativePath = path.join('raw', nombre);
-    const posterRelativePath = path.join('thumbs', `poster_${id}.webp`);
+    const posterRelativePath = path.join('temp', `poster_${id}.webp`);
     const thumbRelativePath = path.join('thumbs', `thumb_${id}.webp`);
     const rawPath = path.join(uploadRoot, rawRelativePath);
     const posterPath = path.join(uploadRoot, posterRelativePath);
@@ -137,7 +137,7 @@ class FileService {
 
     await fs.writeFile(rawPath, fileBuffer);
 
-    // Generar poster y thumb con fallback elegante
+    // Generar poster en temp y thumb en thumbs
     const posterMeta = await videoProcessor.generatePoster(rawPath, posterPath, {
       title: nombreOriginal,
       width: 1280,
@@ -164,6 +164,7 @@ class FileService {
       tipo: 'video',
       duracion: videoMeta.duration || null,
       ruta_raw: path.posix.join('uploads', rawRelativePath.split(path.sep).join('/')),
+      ruta_temp: path.posix.join('uploads', posterRelativePath.split(path.sep).join('/')),
       ruta_thumb: path.posix.join('uploads', thumbRelativePath.split(path.sep).join('/')),
       ruta_poster: path.posix.join('uploads', posterRelativePath.split(path.sep).join('/')),
       extension: ext,
@@ -192,31 +193,56 @@ class FileService {
    */
   async processSingleImage(eventId, file, options = {}) {
     const id = uuidv4();
-    const extension = path.extname(file.filename).toLowerCase().substring(1);
-    const nombre = `${id}.webp`;
-    const nombreOriginal = file.filename;
+    const extension = (path.extname(file.filename || '').replace(/^\./, '') || 'jpg').toLowerCase();
+    const nombre = `${id}.${extension}`;
+    const nombreTemp = `${id}.webp`;
+    const nombreThumb = `thumb_${id}.webp`;
+    const nombreOriginal = file.filename || nombre;
 
     // Crear directorios si no existen
     await this.ensureDirectories();
 
     const rawRelativePath = path.join('raw', nombre);
-    const thumbRelativePath = path.join('thumbs', `thumb_${nombre}`);
+    const tempRelativePath = path.join('temp', nombreTemp);
+    const thumbRelativePath = path.join('thumbs', nombreThumb);
     const rawPath = path.join(uploadRoot, rawRelativePath);
+    const tempPath = path.join(uploadRoot, tempRelativePath);
     const thumbPath = path.join(uploadRoot, thumbRelativePath);
 
-    // Procesar imagen principal
+    // Extraer buffer original del archivo
+    let fileBuffer;
+    if (Buffer.isBuffer(file.buffer || file.data || file.file)) {
+      fileBuffer = file.buffer || file.data || file.file;
+    } else if (file.file && typeof file.file.pipe === 'function') {
+      const chunks = [];
+      for await (const chunk of file.file) {
+        chunks.push(chunk);
+      }
+      fileBuffer = Buffer.concat(chunks);
+    } else if (typeof file.toBuffer === 'function') {
+      fileBuffer = await file.toBuffer();
+    } else {
+      throw new Error('Buffer de imagen no disponible');
+    }
+
+    // 1. Guardar archivo original intacto en raw/ (para descargas)
+    await fs.writeFile(rawPath, fileBuffer);
+
+    // 2. Procesar imagen optimizada en temp/ (WebP para visualización modal / clic)
     const metadata = await this.uploadLimit(async () => {
-      return await imageProcessor.processImage(file.file, {
-        outputPath: rawPath,
+      return await imageProcessor.processImage(fileBuffer, {
+        outputPath: tempPath,
         quality: options.quality || parseInt(process.env.IMAGE_QUALITY) || 82,
         maxWidth: options.maxWidth || parseInt(process.env.RAW_SIZE) || 2000,
         maxHeight: options.maxHeight || parseInt(process.env.RAW_SIZE) || 2000,
         format: 'webp'
       });
     });
-    const processedFile = await fs.stat(rawPath);
 
-    await this.thumbQueue(() => imageProcessor.generateThumbnail(rawPath, thumbPath, {
+    const tempFileStat = await fs.stat(tempPath);
+
+    // 3. Generar miniatura en thumbs/ (300x300 para listados y cuadrículas)
+    await this.thumbQueue(() => imageProcessor.generateThumbnail(tempPath, thumbPath, {
       width: options.thumbSize || parseInt(process.env.THUMB_SIZE) || 300,
       height: options.thumbSize || parseInt(process.env.THUMB_SIZE) || 300,
       quality: 75,
@@ -228,7 +254,7 @@ class FileService {
       path: thumbPath
     });
 
-    // Guardar en base de datos
+    // 4. Guardar en base de datos con rutas separadas
     const imageData = {
       id,
       event_id: eventId,
@@ -237,9 +263,10 @@ class FileService {
       tipo: 'image',
       duracion: null,
       ruta_raw: path.posix.join('uploads', rawRelativePath.split(path.sep).join('/')),
+      ruta_temp: path.posix.join('uploads', tempRelativePath.split(path.sep).join('/')),
       ruta_thumb: path.posix.join('uploads', thumbRelativePath.split(path.sep).join('/')),
-      extension: 'webp', // Siempre convertimos a WebP
-      size: processedFile.size,
+      extension: extension,
+      size: fileBuffer.length,
       width: metadata.width,
       height: metadata.height,
       estado: 'activo',
@@ -248,7 +275,8 @@ class FileService {
       version: 1,
       metadata: {
         original_extension: extension,
-        original_size: file.size,
+        original_size: fileBuffer.length,
+        temp_size: tempFileStat.size,
         v: 1,
         processed_at: new Date().toISOString()
       }
@@ -260,6 +288,7 @@ class FileService {
     fileEvents.emit(EVENTS.IMAGE_PROCESSED, {
       image,
       rawPath,
+      tempPath,
       thumbPath
     });
 
@@ -298,7 +327,7 @@ class FileService {
       where,
       attributes: [
         'id', 'nombre', 'nombre_original', 'tipo', 'duracion', 'ruta_raw', 
-        'ruta_thumb', 'ruta_poster', 'extension', 'width', 'height',
+        'ruta_temp', 'ruta_thumb', 'ruta_poster', 'extension', 'width', 'height',
         'size', 'orden', 'categoria_id', 'version', 'fecha_subida', 'metadata'
       ],
       order: [['orden', 'ASC'], ['fecha_subida', 'DESC']],
@@ -312,6 +341,9 @@ class FileService {
       const versionNumber = img.version || img.metadata?.v || 1;
       const versionParam = `?v=${versionNumber}`;
       const rawUrl = `${publicPrefix}${img.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}${versionParam}`;
+      const tempUrl = img.ruta_temp
+        ? `${publicPrefix}${img.ruta_temp.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}${versionParam}`
+        : rawUrl;
       const thumbUrl = `${publicPrefix}${img.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}${versionParam}`;
       const posterUrl = img.ruta_poster
         ? `${publicPrefix}${img.ruta_poster.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}${versionParam}`
@@ -324,12 +356,15 @@ class FileService {
         type: img.tipo || 'image',
         duracion: img.duracion || null,
         urlRaw: rawUrl,
+        urlTemp: tempUrl,
+        urlPreview: isVideo ? rawUrl : tempUrl,
         urlThumb: isVideo ? posterUrl : thumbUrl,
         urlPoster: isVideo ? posterUrl : undefined,
         urls: {
           thumb: isVideo ? posterUrl : thumbUrl,
           poster: isVideo ? posterUrl : undefined,
-          preview: rawUrl,
+          preview: isVideo ? rawUrl : tempUrl,
+          temp: tempUrl,
           original: rawUrl
         },
         width: img.width,
@@ -382,7 +417,7 @@ async getAllGalleries(options = {}) {
         as: 'images',
         where: { estado: 'activo' },
         attributes: [
-          'id', 'nombre', 'ruta_raw', 'ruta_thumb', 
+          'id', 'nombre', 'ruta_raw', 'ruta_temp', 'ruta_thumb', 
           'width', 'height', 'size', 'version', 'metadata'
         ],
         limit: 1,
@@ -412,6 +447,7 @@ async getAllGalleries(options = {}) {
         coverImage: firstImage ? {
           id: firstImage.id,
           urlThumb: `${publicPrefix}${firstImage.ruta_thumb.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}?v=${coverVersion}`,
+          urlTemp: firstImage.ruta_temp ? `${publicPrefix}${firstImage.ruta_temp.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}?v=${coverVersion}` : `${publicPrefix}${firstImage.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}?v=${coverVersion}`,
           urlRaw: `${publicPrefix}${firstImage.ruta_raw.replace(/^uploads[\\/]/, '').replace(/\\/g, '/')}?v=${coverVersion}`,
           version: coverVersion
         } : null,
@@ -474,7 +510,7 @@ async getAllGalleries(options = {}) {
       fileEvents.emit(EVENTS.IMAGE_DELETED, {
         imageId: image.id,
         eventId: image.event_id,
-        paths: [image.ruta_raw, image.ruta_thumb]
+        paths: [image.ruta_raw, image.ruta_temp, image.ruta_thumb].filter(Boolean)
       });
     }
 
@@ -620,6 +656,21 @@ async getAllGalleries(options = {}) {
       const rotatedRawBuffer = await sharp(rawBuffer).rotate(angle).toBuffer();
       await fs.writeFile(rawFullPath, rotatedRawBuffer);
       const rawMeta = await sharp(rotatedRawBuffer).metadata();
+
+      // Rotar / Regenerar preview temp (WebP) si existe
+      if (galleryImage.ruta_temp) {
+        const tempRelativePath = galleryImage.ruta_temp.replace(/^uploads[\\/]/, '');
+        const tempFullPath = path.join(uploadRoot, tempRelativePath);
+        try {
+          const rotatedTemp = await sharp(rotatedRawBuffer)
+            .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 82, effort: 4 })
+            .toBuffer();
+          await fs.writeFile(tempFullPath, rotatedTemp);
+        } catch (tempErr) {
+          console.warn('Advertencia al regenerar preview temp tras rotar:', tempErr.message);
+        }
+      }
 
       // Rotar / Regenerar thumbnail
       try {
