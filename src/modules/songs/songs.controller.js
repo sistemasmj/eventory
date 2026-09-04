@@ -199,6 +199,9 @@ class SongsController {
 
       reply.header('Accept-Ranges', 'bytes');
       reply.header('Content-Type', song.mimeType || 'audio/mpeg');
+      reply.header('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+      reply.header('ETag', `"${song.id}-${fileStats.mtimeMs.toString(36)}-${fileSize.toString(36)}"`);
+      reply.header('Last-Modified', fileStats.mtime.toUTCString());
 
       if (range) {
         const parts = range.replace(/bytes=/, '').split('-');
