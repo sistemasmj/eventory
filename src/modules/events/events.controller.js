@@ -96,7 +96,11 @@ class EventsController {
       });
 
     } catch (error) {
-      console.error('Error en getEventById:', error);
+      if (error.message !== 'Evento no encontrado') {
+        console.error('Error en getEventById:', error);
+      } else {
+        console.warn(`[getEventById] Evento ${request.params?.eventId} no encontrado`);
+      }
       return reply.status(error.message === 'Evento no encontrado' ? 404 : 500).send({
         success: false,
         message: error.message || 'Error al obtener evento'

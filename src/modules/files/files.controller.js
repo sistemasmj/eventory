@@ -82,8 +82,12 @@ class FileController {
       return reply.status(200).send(result);
 
     } catch (error) {
-      console.error('Error en uploadImages:', error);
-      return reply.status(500).send({
+      if (error.message !== 'Evento no encontrado') {
+        console.error('Error en uploadImages:', error);
+      } else {
+        console.warn(`[uploadImages] Evento ${request.params?.eventId} no encontrado`);
+      }
+      return reply.status(error.message === 'Evento no encontrado' ? 404 : 500).send({
         success: false,
         message: error.message || 'Error al subir archivos multimedia'
       });
